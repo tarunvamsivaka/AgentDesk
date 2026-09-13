@@ -67,7 +67,7 @@ AgentDesk/
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/your-org/AgentDesk.git
+git clone https://github.com/tarunvamsivaka/AgentDesk.git
 
 # 2. Open in Android Studio Ladybug or newer
 
