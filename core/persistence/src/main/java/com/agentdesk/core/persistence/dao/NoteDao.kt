@@ -1,6 +1,8 @@
 package com.agentdesk.core.persistence.dao
 
-import androidx.room.*
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.Query
 import com.agentdesk.core.persistence.entity.NoteEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -8,11 +10,11 @@ import kotlinx.coroutines.flow.Flow
 interface NoteDao {
 
     @Insert
-    suspend fun insert(note: NoteEntity): Long
+    suspend fun insert(note: NoteEntity)
 
-    @Query("SELECT * FROM note ORDER BY created_at DESC LIMIT :limit")
-    fun observeRecent(limit: Int = 50): Flow<List<NoteEntity>>
+    @Query("SELECT * FROM notes ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<NoteEntity>>
 
-    @Query("DELETE FROM note WHERE created_at < :beforeEpoch")
-    suspend fun deleteOlderThan(beforeEpoch: Long)
+    @Query("SELECT * FROM notes WHERE body LIKE '%' || :query || '%' LIMIT 10")
+    suspend fun search(query: String): List<NoteEntity>
 }

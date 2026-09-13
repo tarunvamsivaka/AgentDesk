@@ -439,15 +439,16 @@ data class ExtractedEntityEntity(
 )
 
 // ────────────────────────────────────────────────────────────────────────────
-// NOTES (NoteTool — batch 2)
+// NOTES (create_note tool)
 // ────────────────────────────────────────────────────────────────────────────
 
 @Entity(
-    tableName = "note",
-    indices = [Index(value = ["created_at"])]
+    tableName = "notes",
+    indices = [Index(value = ["createdAt"])]
 )
 data class NoteEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    @ColumnInfo(name = "body") val body: String,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
+    @PrimaryKey val id: String,
+    val title: String,
+    val body: String,
+    val createdAt: Long
 )

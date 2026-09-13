@@ -25,6 +25,7 @@ dependencies {
     implementation(project(":core:persistence"))
     implementation(project(":core:device"))
     implementation(libs.android.core.ktx)
+    implementation(libs.documentfile)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.workmanager)

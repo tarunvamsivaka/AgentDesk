@@ -36,7 +36,7 @@ import com.agentdesk.core.persistence.entity.*
         ExtractedEntityEntity::class,
         NoteEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 @TypeConverters(AppConverters::class)
