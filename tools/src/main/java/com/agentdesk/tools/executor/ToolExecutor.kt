@@ -5,79 +5,63 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.AlarmClock
 import android.provider.CalendarContract
-import com.agentdesk.core.common.model.RiskLevel
-import com.agentdesk.core.persistence.dao.AuditDao
-import com.agentdesk.core.persistence.entity.AuditEventEntity
+import com.agentdesk.core.common.tools.ToolRunner
+import com.agentdesk.core.common.tools.ToolRunResult
+import com.agentdesk.tools.registry.Tool
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Executes tool requests using Android system Intents.
+ * Dispatches tool requests to registered [Tool] implementations, falling back
+ * to built-in Android system Intent handlers for tools without a Tool class yet.
  *
  * Principles:
  * - No background sending. Every communication tool opens a system UI.
- * - Every execution attempt is audited via [AuditDao].
+ * - Auditing of tool invocations is owned by CommandGateway (:agent).
  * - No accessibility service usage.
  * - Intents use FLAG_ACTIVITY_NEW_TASK since this may be called from a non-Activity context.
  */
 @Singleton
 class ToolExecutor @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val auditDao: AuditDao
-) {
+    private val tools: Map<String, @JvmSuppressWildcards Tool>
+) : ToolRunner {
 
-    suspend fun execute(request: ToolRequest): ToolResult {
-        val result = runTool(request)
-        auditDao.insert(
-            AuditEventEntity(
-                eventType  = if (result is ToolResult.Success) "TOOL_SUCCESS" else "TOOL_ERROR",
-                actor      = "TOOL_EXECUTOR",
-                targetType = "TOOL",
-                targetId   = request.toolId,
-                summary    = when (result) {
-                    is ToolResult.Success   -> result.message
-                    is ToolResult.Error     -> result.reason
-                    is ToolResult.Cancelled -> "Cancelled"
-                },
-                riskLevel  = RiskLevel.LOW
-            )
-        )
-        return result
+    override suspend fun execute(
+        toolId: String,
+        parameters: Map<String, String>,
+        commandId: Long
+    ): ToolRunResult {
+        val result = runTool(ToolRequest(toolId, parameters, commandId))
+        return when (result) {
+            is ToolResult.Success   -> ToolRunResult(result.toolId, true, result.message)
+            is ToolResult.Error     -> ToolRunResult(result.toolId, false, result.reason)
+            is ToolResult.Cancelled -> ToolRunResult(result.toolId, false, "Cancelled")
+        }
     }
 
     // ---------------------------------------------------------------------------
     // Tool dispatch
     // ---------------------------------------------------------------------------
 
-    private fun runTool(request: ToolRequest): ToolResult = try {
-        when (request.toolId) {
-            "set_alarm"            -> setAlarm(request.parameters)
-            "set_timer"            -> setTimer(request.parameters)
-            "create_note"          -> createNote(request.parameters)
-            "open_app"             -> openApp(request.parameters)
-            "create_calendar_event" -> createCalendarEvent(request.parameters)
-            "draft_sms"            -> draftSms(request.parameters)
-            "open_dialer"          -> openDialer(request.parameters)
-            "library_search"       -> ToolResult.Success("library_search", "Navigate to Library screen to view results.")
-            "web_search"           -> webSearch(request.parameters)
-            "navigate_maps"        -> navigateMaps(request.parameters)
-            "device_health"        -> ToolResult.Success("device_health", "Navigate to Health screen to view device status.")
-            else                   -> ToolResult.Error(request.toolId, "Unknown tool: ${request.toolId}")
-        }
+    private suspend fun runTool(request: ToolRequest): ToolResult = try {
+        tools[request.toolId]?.execute(request) ?: legacyRun(request)
     } catch (e: Exception) {
         ToolResult.Error(request.toolId, "Execution error: ${e.message}")
     }
 
-    private fun setAlarm(params: Map<String, String>): ToolResult {
-        val timeStr = params["time"] ?: return ToolResult.Error("set_alarm", "No time specified.")
-        val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
-            putExtra(AlarmClock.EXTRA_MESSAGE, "AgentDesk Alarm")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            // Best-effort parse; the Alarm app handles display/confirmation
-        }
-        context.startActivity(intent)
-        return ToolResult.Success("set_alarm", "Alarm set for $timeStr.")
+    /** Built-in intent handlers for MVP tools that have no dedicated [Tool] class yet. */
+    private fun legacyRun(request: ToolRequest): ToolResult = when (request.toolId) {
+        "set_timer"             -> setTimer(request.parameters)
+        "create_calendar_event" -> createCalendarEvent(request.parameters)
+        "draft_sms"             -> draftSms(request.parameters)
+        "open_dialer"           -> openDialer(request.parameters)
+        "library_search"        -> ToolResult.Success("library_search", "Navigate to Library screen to view results.")
+        "web_search"            -> webSearch(request.parameters)
+        "navigate_maps"         -> navigateMaps(request.parameters)
+        "device_health"         -> ToolResult.Success("device_health", "Navigate to Health screen to view device status.")
+        else                    -> ToolResult.Error(request.toolId, "Unknown tool: ${request.toolId}")
     }
 
     private fun setTimer(params: Map<String, String>): ToolResult {
@@ -96,35 +80,6 @@ class ToolExecutor @Inject constructor(
         }
         context.startActivity(intent)
         return ToolResult.Success("set_timer", "Timer set for $duration $unit(s).")
-    }
-
-    private fun createNote(params: Map<String, String>): ToolResult {
-        val text = params["text"] ?: return ToolResult.Error("create_note", "No note text provided.")
-        // In MVP: open a plain text intent so user sees and confirms
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, text)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(Intent.createChooser(intent, "Save note with…").apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        })
-        return ToolResult.Success("create_note", "Note ready to save: \"${text.take(40)}…\"")
-    }
-
-    private fun openApp(params: Map<String, String>): ToolResult {
-        val appName = params["appName"] ?: return ToolResult.Error("open_app", "No app name provided.")
-        val pm = context.packageManager
-        val launchIntent = pm.getInstalledApplications(0)
-            .firstOrNull { pm.getApplicationLabel(it).toString().equals(appName, ignoreCase = true) }
-            ?.let { pm.getLaunchIntentForPackage(it.packageName) }
-        return if (launchIntent != null) {
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(launchIntent)
-            ToolResult.Success("open_app", "Opened $appName.")
-        } else {
-            ToolResult.Error("open_app", "App \"$appName\" not found on this device.")
-        }
     }
 
     private fun createCalendarEvent(params: Map<String, String>): ToolResult {

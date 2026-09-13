@@ -50,4 +50,10 @@ object PersistenceModule {
 
     @Provides
     fun provideFtsSearchDao(db: AgentDeskDatabase): FtsSearchDao = db.ftsSearchDao()
+
+    @Provides
+    fun providePolicyDecisionDao(db: AgentDeskDatabase): PolicyDecisionDao = db.policyDecisionDao()
+
+    @Provides
+    fun provideNoteDao(db: AgentDeskDatabase): NoteDao = db.noteDao()
 }

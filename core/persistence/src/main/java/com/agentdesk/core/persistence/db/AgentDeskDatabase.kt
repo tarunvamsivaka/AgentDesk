@@ -34,8 +34,9 @@ import com.agentdesk.core.persistence.entity.*
         IndexBudgetEntity::class,
         SharedItemEntity::class,
         ExtractedEntityEntity::class,
+        NoteEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(AppConverters::class)
@@ -50,4 +51,5 @@ abstract class AgentDeskDatabase : RoomDatabase() {
     abstract fun ftsSearchDao(): FtsSearchDao
     abstract fun policyDecisionDao(): PolicyDecisionDao
     abstract fun confirmationDao(): ConfirmationDao
+    abstract fun noteDao(): NoteDao
 }

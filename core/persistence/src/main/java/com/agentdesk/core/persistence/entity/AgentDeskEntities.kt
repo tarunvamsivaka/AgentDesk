@@ -183,6 +183,8 @@ data class CommandRecordEntity(
     @ColumnInfo(name = "confidence") val confidence: Float = 0f,
     @ColumnInfo(name = "source") val source: CommandSource = CommandSource.USER_CHAT,
     @ColumnInfo(name = "thread_id") val threadId: Long? = null,
+    @ColumnInfo(name = "status") val status: String = "RECEIVED",
+    @ColumnInfo(name = "latency_ms") val latencyMs: Long = 0L,
     @ColumnInfo(name = "issued_at") val issuedAt: Long = System.currentTimeMillis()
 )
 
@@ -434,4 +436,18 @@ data class ExtractedEntityEntity(
     @ColumnInfo(name = "value") val value: String,
     @ColumnInfo(name = "confidence") val confidence: Float = 1.0f,
     @ColumnInfo(name = "extracted_at") val extractedAt: Long = System.currentTimeMillis()
+)
+
+// ────────────────────────────────────────────────────────────────────────────
+// NOTES (NoteTool — batch 2)
+// ────────────────────────────────────────────────────────────────────────────
+
+@Entity(
+    tableName = "note",
+    indices = [Index(value = ["created_at"])]
+)
+data class NoteEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "body") val body: String,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
 )

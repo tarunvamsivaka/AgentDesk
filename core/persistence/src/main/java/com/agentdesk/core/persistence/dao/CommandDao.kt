@@ -16,6 +16,12 @@ interface CommandDao {
     @Insert
     suspend fun insert(record: CommandRecordEntity): Long
 
+    @Query(
+        "UPDATE command_record SET intent_name = :intentName, " +
+        "status = :status, latency_ms = :latencyMs WHERE id = :id"
+    )
+    suspend fun updateResult(id: Long, intentName: String, status: String, latencyMs: Long)
+
     @Query("DELETE FROM command_record WHERE issued_at < :beforeEpoch")
     suspend fun deleteOlderThan(beforeEpoch: Long)
 }
