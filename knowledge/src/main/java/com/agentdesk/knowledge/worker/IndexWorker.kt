@@ -6,6 +6,7 @@ import android.os.StatFs
 import android.os.storage.StorageManager
 import androidx.documentfile.provider.DocumentFile
 import androidx.hilt.work.HiltWorker
+import androidx.room.withTransaction
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.agentdesk.core.common.model.IndexStatus
@@ -39,6 +40,7 @@ import java.util.UUID
 class IndexWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
+    private val agentDeskDatabase: com.agentdesk.core.persistence.db.AgentDeskDatabase,
     private val knowledgeDao: KnowledgeDao,
     private val ftsSearchDao: FtsSearchDao
 ) : CoroutineWorker(appContext, params) {
@@ -53,7 +55,11 @@ class IndexWorker @AssistedInject constructor(
             ?: return Result.failure()
 
         val files = collectIndexableFiles(root)
-        files.forEach { file -> indexFile(file) }
+        for (file in files) {
+            // Stop cleanly at the top of each file loop instead of mid-file
+            if (isStopped) return Result.retry()
+            indexFile(file)
+        }
         return Result.success()
     }
 
@@ -75,25 +81,28 @@ class IndexWorker @AssistedInject constructor(
             )
         )
 
-        val documentId = knowledgeDao.insertDocument(
-            DocumentEntity(
-                sourceId = sourceId,
-                title = file.name ?: "Untitled",
-                charCount = text.length
-            )
-        )
-
-        val chunks = text.chunked(CHUNK_SIZE)
-        knowledgeDao.insertChunks(
-            chunks.mapIndexed { index, content ->
-                TextChunkEntity(
-                    documentId = documentId,
-                    chunkIndex = index,
-                    content = content,
-                    charOffset = index * CHUNK_SIZE
+        // Atomic per file: document + chunks + FTS sync either fully apply or not at all
+        agentDeskDatabase.withTransaction {
+            val documentId = knowledgeDao.insertDocument(
+                DocumentEntity(
+                    sourceId = sourceId,
+                    title = file.name ?: "Untitled",
+                    charCount = text.length
                 )
-            }
-        )
+            )
+
+            val chunks = text.chunked(CHUNK_SIZE)
+            knowledgeDao.insertChunks(
+                chunks.mapIndexed { index, content ->
+                    TextChunkEntity(
+                        documentId = documentId,
+                        chunkIndex = index,
+                        content = content,
+                        charOffset = index * CHUNK_SIZE
+                    )
+                }
+            )
+        }
 
         knowledgeDao.updateIndexStatus(sourceId, IndexStatus.COMPLETED)
     }

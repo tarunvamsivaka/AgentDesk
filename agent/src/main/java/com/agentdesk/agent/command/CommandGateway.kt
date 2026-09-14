@@ -9,6 +9,7 @@ import com.agentdesk.core.persistence.dao.AuditDao
 import com.agentdesk.core.persistence.dao.CommandDao
 import com.agentdesk.core.persistence.entity.AuditEventEntity
 import com.agentdesk.core.persistence.entity.CommandRecordEntity
+import com.agentdesk.core.security.Redactor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -36,6 +37,7 @@ class CommandGateway @Inject constructor(
     private val toolRunner: ToolRunner,
     private val commandDao: CommandDao,
     private val auditDao: AuditDao,
+    private val redactor: Redactor,
     private val dispatcher: CoroutineDispatcher
 ) {
 
@@ -47,11 +49,11 @@ class CommandGateway @Inject constructor(
         val startedAt = System.currentTimeMillis()
         val normalized = rawInput.trim().lowercase()
 
-        // Step 1: Persist command record as RECEIVED
+        // Step 1: Persist command record as RECEIVED (rawInput is redacted — no PII at rest)
         val commandId = commandDao.insert(
             CommandRecordEntity(
-                rawInput = rawInput,
-                normalizedInput = normalized,
+                rawInput = redactor.redact(rawInput),
+                normalizedInput = redactor.redact(normalized),
                 source = source,
                 threadId = threadId
             )
@@ -102,8 +104,8 @@ class CommandGateway @Inject constructor(
         val startedAt = System.currentTimeMillis()
         val commandId = commandDao.insert(
             CommandRecordEntity(
-                rawInput = command.rawInput,
-                normalizedInput = command.normalizedInput,
+                rawInput = redactor.redact(command.rawInput),
+                normalizedInput = redactor.redact(command.normalizedInput),
                 intentName = command.intentName,
                 confidence = command.confidence,
                 source = command.source,

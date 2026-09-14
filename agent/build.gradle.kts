@@ -23,6 +23,7 @@ android {
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:persistence"))
+    implementation(project(":core:security"))
     implementation(project(":core:settings"))
     implementation(libs.android.core.ktx)
     implementation(libs.hilt.android)

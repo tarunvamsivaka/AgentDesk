@@ -18,6 +18,8 @@ import com.agentdesk.tools.contact.ContactResolver
 import com.agentdesk.tools.contact.Resolution
 import com.agentdesk.tools.registry.Tool
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -156,9 +158,12 @@ class ToolExecutor @Inject constructor(
     // ---------------------------------------------------------------------------
 
     private suspend fun deviceHealth(): ToolResult {
-        val freeStorageMb = statFsAvailableMb()
-        val totalStorageMb = statFsTotalMb()
-        val (batteryPercent, isCharging) = readBattery()
+        val (freeStorageMb, totalStorageMb) = withContext(Dispatchers.IO) {
+            statFsAvailableMb() to statFsTotalMb()
+        }
+        val (batteryPercent, isCharging) = withContext(Dispatchers.IO) {
+            readBattery()
+        }
         val tier = deviceDao.latestCapabilitySnapshot()?.deviceTier?.name
         return ToolResult.Success(
             "device_health",

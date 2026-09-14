@@ -2,19 +2,23 @@ package com.agentdesk.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.agentdesk.core.common.model.ConsentState
 import com.agentdesk.core.persistence.dao.AuditDao
 import com.agentdesk.core.persistence.dao.ConsentDao
 import com.agentdesk.core.persistence.dao.KnowledgeDao
 import com.agentdesk.core.persistence.dao.NoteDao
+import com.agentdesk.core.persistence.db.AgentDeskDatabase
 import com.agentdesk.core.persistence.entity.ConsentRecordEntity
 import com.agentdesk.core.security.AppLockManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -22,12 +26,14 @@ import javax.inject.Inject
  * - App lock enable/disable via [AppLockManager]
  * - Consent records via [ConsentDao] (one record per ConsentKeys entry)
  * - "Delete all local data" clears notes, documents, chunks (FTS4 is
- *   content-synced), knowledge sources, shared items, and the audit log.
- *   The UI MUST show a confirmation dialog before calling this.
+ *   content-synced), knowledge sources, shared items, and the audit log
+ *   atomically inside one database transaction. The UI MUST show a
+ *   confirmation dialog before calling this.
  */
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val appLockManager: AppLockManager,
+    private val agentDeskDatabase: AgentDeskDatabase,
     private val consentDao: ConsentDao,
     private val noteDao: NoteDao,
     private val knowledgeDao: KnowledgeDao,
@@ -73,12 +79,17 @@ class SettingsViewModel @Inject constructor(
     /** Destructive: clears all local knowledge, notes, and audit data. Requires prior user confirmation. */
     fun deleteAllLocalData() {
         viewModelScope.launch {
-            knowledgeDao.deleteAllChunks()
-            knowledgeDao.deleteAllDocuments()
-            knowledgeDao.deleteAllSources()
-            knowledgeDao.deleteAllSharedItems()
-            noteDao.deleteAll()
-            auditDao.deleteAll()
+            withContext(Dispatchers.IO) {
+                // Atomic: either everything is cleared or nothing is — no partially cleared DB
+                agentDeskDatabase.withTransaction {
+                    knowledgeDao.deleteAllChunks()
+                    knowledgeDao.deleteAllDocuments()
+                    knowledgeDao.deleteAllSources()
+                    knowledgeDao.deleteAllSharedItems()
+                    noteDao.deleteAll()
+                    auditDao.deleteAll()
+                }
+            }
         }
     }
 }

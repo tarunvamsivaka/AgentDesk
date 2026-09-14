@@ -132,6 +132,7 @@ class ConfirmationFlowTest {
             toolRunner = toolRunner,
             commandDao = FakeCommandDao(),
             auditDao = auditDao,
+            redactor = com.agentdesk.core.security.Redactor(),
             dispatcher = Dispatchers.Unconfined
         )
         return ChatViewModel(gateway, confirmationDao)

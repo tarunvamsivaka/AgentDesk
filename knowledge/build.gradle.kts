@@ -26,6 +26,8 @@ dependencies {
     implementation(project(":core:device"))
     implementation(libs.android.core.ktx)
     implementation(libs.documentfile)
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.workmanager)

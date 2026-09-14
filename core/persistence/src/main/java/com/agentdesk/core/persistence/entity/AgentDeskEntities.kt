@@ -435,7 +435,9 @@ data class ExtractedEntityEntity(
     @ColumnInfo(name = "entity_type") val entityType: String, // date | time | phone | email | url | tracking_id
     @ColumnInfo(name = "value") val value: String,
     @ColumnInfo(name = "confidence") val confidence: Float = 1.0f,
-    @ColumnInfo(name = "extracted_at") val extractedAt: Long = System.currentTimeMillis()
+    @ColumnInfo(name = "extracted_at") val extractedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "expires_at") val expiresAt: Long? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
 )
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ android {
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:persistence"))
+    implementation(project(":core:security"))
     implementation(project(":agent"))
     implementation(project(":tools"))
     implementation(platform(libs.compose.bom))

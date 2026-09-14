@@ -10,6 +10,7 @@ import com.agentdesk.core.persistence.dao.PolicyDecisionDao
 import com.agentdesk.core.persistence.entity.AuditEventEntity
 import com.agentdesk.core.persistence.entity.CommandRecordEntity
 import com.agentdesk.core.persistence.entity.PolicyDecisionEntity
+import com.agentdesk.core.security.Redactor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -114,6 +115,7 @@ class CommandGatewayTest {
             toolRunner = toolRunner,
             commandDao = commandDao,
             auditDao = auditDao,
+            redactor = Redactor(),
             dispatcher = Dispatchers.Unconfined
         )
     }

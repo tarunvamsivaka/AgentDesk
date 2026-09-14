@@ -80,4 +80,14 @@ interface KnowledgeDao {
 
     @Query("DELETE FROM shared_item")
     suspend fun deleteAllSharedItems()
+
+    // Retention pruning (RetentionCleanupWorker)
+    @Query("DELETE FROM shared_item WHERE received_at < :beforeMs")
+    suspend fun deleteSharedItemsOlderThan(beforeMs: Long)
+
+    @Query(
+        "DELETE FROM extracted_entity WHERE " +
+                "(expires_at IS NOT NULL AND expires_at < :nowMs) OR created_at < :cutoffMs"
+    )
+    suspend fun deleteExpiredEntities(nowMs: Long, cutoffMs: Long)
 }
