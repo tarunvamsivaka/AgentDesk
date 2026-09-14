@@ -41,13 +41,17 @@ class SettingsViewModel @Inject constructor(
     val consents: Flow<List<ConsentRecordEntity>> = consentDao.observeAll()
 
     fun enableAppLock(pin: String) {
-        appLockManager.enableLock(pin)
-        _appLockEnabled.value = true
+        viewModelScope.launch {
+            appLockManager.enableLock(pin)
+            _appLockEnabled.value = true
+        }
     }
 
     fun disableAppLock() {
-        appLockManager.disableLock()
-        _appLockEnabled.value = false
+        viewModelScope.launch {
+            appLockManager.disableLock()
+            _appLockEnabled.value = false
+        }
     }
 
     /** Upserts a consent record for [key] as GRANTED or REVOKED. */

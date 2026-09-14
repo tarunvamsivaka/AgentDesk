@@ -42,6 +42,9 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
 
+    <!-- Alarms/timers (AlarmClock.ACTION_SET_ALARM / ACTION_SET_TIMER) -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
     <!-- Contacts (read name for dialer prefill only) -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 

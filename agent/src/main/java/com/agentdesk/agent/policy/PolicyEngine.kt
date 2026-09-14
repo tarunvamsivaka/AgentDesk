@@ -2,6 +2,7 @@ package com.agentdesk.agent.policy
 
 import com.agentdesk.agent.command.Command
 import com.agentdesk.agent.command.CommandResult
+import com.agentdesk.agent.di.IoDispatcher
 import com.agentdesk.agent.rule.Intents
 import com.agentdesk.agent.rule.RuleResult
 import com.agentdesk.core.common.model.RiskLevel
@@ -9,6 +10,8 @@ import com.agentdesk.core.persistence.dao.AuditDao
 import com.agentdesk.core.persistence.dao.PolicyDecisionDao
 import com.agentdesk.core.persistence.entity.AuditEventEntity
 import com.agentdesk.core.persistence.entity.PolicyDecisionEntity
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,7 +31,8 @@ import javax.inject.Singleton
 @Singleton
 class PolicyEngine @Inject constructor(
     private val auditDao: AuditDao,
-    private val policyDecisionDao: PolicyDecisionDao
+    private val policyDecisionDao: PolicyDecisionDao,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
 
     suspend fun evaluate(
@@ -109,30 +113,34 @@ class PolicyEngine @Inject constructor(
         requiresConfirmation: Boolean,
         reason: String
     ) {
-        policyDecisionDao.insert(
-            PolicyDecisionEntity(
-                commandId = commandId,
-                intentName = command.intentName,
-                riskLevel = risk,
-                allowed = allowed,
-                reason = reason,
-                requiresConfirmation = requiresConfirmation
+        withContext(ioDispatcher) {
+            policyDecisionDao.insert(
+                PolicyDecisionEntity(
+                    commandId = commandId,
+                    intentName = command.intentName,
+                    riskLevel = risk,
+                    allowed = allowed,
+                    reason = reason,
+                    requiresConfirmation = requiresConfirmation
+                )
             )
-        )
+        }
     }
 
     private suspend fun writeAudit(command: Command, decision: String, risk: RiskLevel, reason: String) {
-        auditDao.insert(
-            AuditEventEntity(
-                eventType      = decision,
-                actor          = command.source.name,
-                targetType     = "INTENT",
-                targetId       = command.intentName,
-                summary        = reason,
-                redactedDetails = "",
-                riskLevel      = risk
+        withContext(ioDispatcher) {
+            auditDao.insert(
+                AuditEventEntity(
+                    eventType      = decision,
+                    actor          = command.source.name,
+                    targetType     = "INTENT",
+                    targetId       = command.intentName,
+                    summary        = reason,
+                    redactedDetails = "",
+                    riskLevel      = risk
+                )
             )
-        )
+        }
     }
 
     companion object {

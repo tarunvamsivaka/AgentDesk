@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
 // ---------------------------------------------------------------------------
@@ -23,10 +24,17 @@ import javax.inject.Inject
 enum class MessageSender { USER, AGENT }
 
 data class ChatMessage(
-    val id: Long = System.currentTimeMillis(),
+    val id: Long = ChatMessage.newId(),
     val text: String,
     val sender: MessageSender
-)
+) {
+    companion object {
+        // Monotonic counter — stable, collision-free LazyColumn keys
+        private val counter = AtomicLong(0)
+
+        fun newId(): Long = counter.incrementAndGet()
+    }
+}
 
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),

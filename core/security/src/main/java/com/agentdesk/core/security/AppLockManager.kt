@@ -1,24 +1,42 @@
 package com.agentdesk.core.security
 
 import android.content.Context
+import android.util.Base64
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStoreFile
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.fragment.app.FragmentActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.runBlocking
+import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Manages app lock state using device biometrics or PIN fallback.
  *
- * MVP: PIN is stored in memory only (not persisted). Full keystore-backed
- * encryption with DataStore-persisted PIN hash is deferred to post-MVP.
+ * SECURITY: The PIN is never stored or logged in raw form. On [enableLock] a
+ * random 16-byte salt is generated and the PIN is hashed with
+ * PBKDF2WithHmacSHA256 (10,000 iterations, 256-bit key). The salt and hash
+ * are persisted (Base64) in a private DataStore. [verifyPin] recomputes the
+ * hash and compares it in constant time via [MessageDigest.isEqual].
  *
- * SAFETY: isLockEnabled() returns false by default (MVP: lock is opt-in).
+ * SAFETY: isLockEnabled() is false until the user explicitly enables the lock.
  */
 @Singleton
 class AppLockManager @Inject constructor(
@@ -27,22 +45,34 @@ class AppLockManager @Inject constructor(
     private val _lockState = MutableStateFlow(AppLockState.UNLOCKED)
     val lockState: StateFlow<AppLockState> = _lockState.asStateFlow()
 
-    // MVP: Lock is disabled by default. Will be backed by DataStore in post-MVP.
-    private var appLockEnabled: Boolean = false
+    private val dataStore: DataStore<Preferences> = PreferenceDataStoreFactory.create(
+        scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    ) { context.preferencesDataStoreFile(APP_LOCK_STORE_FILE) }
 
-    // MVP: PIN stored in memory only. Post-MVP: store hashed PIN in EncryptedSharedPreferences.
-    private var pinHash: Int? = null
+    private var appLockEnabled: Boolean = runBlocking {
+        readEnabledPref()
+    }
 
     fun isLockEnabled(): Boolean = appLockEnabled
 
-    fun enableLock(pin: String) {
-        pinHash = pin.hashCode()
+    suspend fun enableLock(pin: String) {
+        val salt = ByteArray(SALT_BYTES).also { secureRandom.nextBytes(it) }
+        val hash = pbkdf2(pin, salt)
+        dataStore.edit { prefs ->
+            prefs[SALT_KEY] = Base64.encodeToString(salt, Base64.NO_WRAP)
+            prefs[HASH_KEY] = Base64.encodeToString(hash, Base64.NO_WRAP)
+            prefs[ENABLED_KEY] = "true"
+        }
         appLockEnabled = true
         _lockState.value = AppLockState.LOCKED
     }
 
-    fun disableLock() {
-        pinHash = null
+    suspend fun disableLock() {
+        dataStore.edit { prefs ->
+            prefs.remove(SALT_KEY)
+            prefs.remove(HASH_KEY)
+            prefs[ENABLED_KEY] = "false"
+        }
         appLockEnabled = false
         _lockState.value = AppLockState.UNLOCKED
     }
@@ -51,11 +81,12 @@ class AppLockManager @Inject constructor(
     fun unlock() { _lockState.value = AppLockState.UNLOCKED }
     fun isLocked(): Boolean = _lockState.value == AppLockState.LOCKED
 
-    fun verifyPin(pin: String): Boolean {
-        return if (pinHash != null && pin.hashCode() == pinHash) {
-            unlock()
-            true
-        } else false
+    suspend fun verifyPin(pin: String): Boolean {
+        val (salt, storedHash) = readSaltAndHash() ?: return false
+        val computed = pbkdf2(pin, salt)
+        if (!java.security.MessageDigest.isEqual(computed, storedHash)) return false
+        unlock()
+        return true
     }
 
     fun isBiometricAvailable(): Boolean {
@@ -100,6 +131,44 @@ class AppLockManager @Inject constructor(
             )
             .build()
         prompt.authenticate(info)
+    }
+
+    private suspend fun readEnabledPref(): Boolean {
+        return try {
+            dataStore.data.first()[ENABLED_KEY] == "true"
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private suspend fun readSaltAndHash(): Pair<ByteArray, ByteArray>? {
+        return try {
+            val prefs = dataStore.data.first()
+            val saltB64 = prefs[SALT_KEY] ?: return null
+            val hashB64 = prefs[HASH_KEY] ?: return null
+            Base64.decode(saltB64, Base64.NO_WRAP) to Base64.decode(hashB64, Base64.NO_WRAP)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun pbkdf2(pin: String, salt: ByteArray): ByteArray {
+        val spec = PBEKeySpec(pin.toCharArray(), salt, PBKDF2_ITERATIONS, KEY_BITS)
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        return factory.generateSecret(spec).encoded
+    }
+
+    companion object {
+        private const val APP_LOCK_STORE_FILE = "app_lock_security"
+        private val SALT_KEY = stringPreferencesKey("pin_salt_b64")
+        private val HASH_KEY = stringPreferencesKey("pin_hash_b64")
+        private val ENABLED_KEY = stringPreferencesKey("app_lock_enabled")
+
+        private const val SALT_BYTES = 16
+        private const val PBKDF2_ITERATIONS = 10_000
+        private const val KEY_BITS = 256
+
+        private val secureRandom = SecureRandom()
     }
 }
 

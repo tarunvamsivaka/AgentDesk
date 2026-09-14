@@ -128,7 +128,7 @@ class ConfirmationFlowTest {
         val policyDecisionDao = FakePolicyDecisionDao()
         val gateway = CommandGateway(
             ruleEngine = RuleEngine(),
-            policyEngine = PolicyEngine(auditDao, policyDecisionDao),
+            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
             toolRunner = toolRunner,
             commandDao = FakeCommandDao(),
             auditDao = auditDao,

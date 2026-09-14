@@ -10,6 +10,7 @@ import com.agentdesk.app.ui.lock.LockScreen
 import com.agentdesk.app.ui.theme.AgentDeskTheme
 import com.agentdesk.core.security.AppLockManager
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
@@ -46,6 +47,7 @@ private fun AgentDeskRoot(
 ) {
     var isLocked by remember { mutableStateOf(appLockManager.isLockEnabled()) }
     var lockError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     if (isLocked) {
         LockScreen(
@@ -58,11 +60,13 @@ private fun AgentDeskRoot(
                 )
             },
             onPinSubmit = { pin ->
-                if (appLockManager.verifyPin(pin)) {
-                    isLocked = false
-                    lockError = null
-                } else {
-                    lockError = "Incorrect PIN."
+                scope.launch {
+                    if (appLockManager.verifyPin(pin)) {
+                        isLocked = false
+                        lockError = null
+                    } else {
+                        lockError = "Incorrect PIN."
+                    }
                 }
             },
             errorMessage = lockError

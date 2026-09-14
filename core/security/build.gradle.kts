@@ -24,6 +24,7 @@ dependencies {
     implementation(project(":core:persistence"))
     implementation(libs.android.core.ktx)
     implementation(libs.biometric)
+    implementation(libs.datastore.preferences)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.kotlinx.coroutines.android)

@@ -14,6 +14,8 @@ import com.agentdesk.core.persistence.dao.DeviceDao
 import com.agentdesk.core.persistence.dao.FtsSearchDao
 import com.agentdesk.core.persistence.dao.NoteDao
 import com.agentdesk.core.persistence.entity.NoteEntity
+import com.agentdesk.tools.contact.ContactResolver
+import com.agentdesk.tools.contact.Resolution
 import com.agentdesk.tools.registry.Tool
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
@@ -37,7 +39,8 @@ class ToolExecutor @Inject constructor(
     private val tools: Map<String, @JvmSuppressWildcards Tool>,
     private val noteDao: NoteDao,
     private val ftsSearchDao: FtsSearchDao,
-    private val deviceDao: DeviceDao
+    private val deviceDao: DeviceDao,
+    private val contactResolver: ContactResolver
 ) : ToolRunner {
 
     override suspend fun execute(
@@ -222,27 +225,65 @@ class ToolExecutor @Inject constructor(
         return ToolResult.Success("create_calendar_event", "Calendar opened to add \"$title\".")
     }
 
-    private fun draftSms(params: Map<String, String>): ToolResult {
+    private suspend fun draftSms(params: Map<String, String>): ToolResult {
         val contact = params["contact"] ?: return ToolResult.Error("draft_sms", "No contact specified.")
         val body = params["body"].orEmpty()
-        // ACTION_SENDTO with smsto: opens the SMS app with the contact pre-filled
+        val resolution = contactResolver.resolve(contact)
+        val number = when (resolution) {
+            is Resolution.IsNumber  -> resolution.number
+            is Resolution.Single    -> resolution.number
+            is Resolution.Multiple  -> return ToolResult.Error(
+                "draft_sms",
+                "Found ${resolution.labels.size} matches for \"$contact\": " +
+                        "${resolution.labels.joinToString(", ")}. Say which one."
+            )
+            Resolution.None         -> {
+                val reason = if (contactResolver.hasContactsPermission()) {
+                    "No contact found for \"$contact\"."
+                } else {
+                    "Contacts permission is needed to look up \"$contact\". " +
+                            "Enable it in Settings -> Apps -> AgentDesk -> Permissions."
+                }
+                return ToolResult.Error("draft_sms", reason)
+            }
+        }
+        // ACTION_SENDTO with smsto: opens the SMS app with the phone number pre-filled
         // The user MUST tap Send. No silent sending.
-        val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$contact")).apply {
+        val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$number")).apply {
             putExtra("sms_body", body)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
-        return ToolResult.Success("draft_sms", "SMS draft opened for $contact. Tap Send to deliver.")
+        return ToolResult.Success("draft_sms", "SMS draft opened for $contact ($number). Tap Send to deliver.")
     }
 
-    private fun openDialer(params: Map<String, String>): ToolResult {
+    private suspend fun openDialer(params: Map<String, String>): ToolResult {
         val contact = params["contact"] ?: return ToolResult.Error("open_dialer", "No contact specified.")
-        // ACTION_DIAL opens the dialer UI. The user MUST tap Call. No silent calling.
-        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$contact")).apply {
+        val resolution = contactResolver.resolve(contact)
+        val number = when (resolution) {
+            is Resolution.IsNumber  -> resolution.number
+            is Resolution.Single    -> resolution.number
+            is Resolution.Multiple  -> return ToolResult.Error(
+                "open_dialer",
+                "Found ${resolution.labels.size} matches for \"$contact\": " +
+                        "${resolution.labels.joinToString(", ")}. Say which one."
+            )
+            Resolution.None         -> {
+                val reason = if (contactResolver.hasContactsPermission()) {
+                    "No contact found for \"$contact\"."
+                } else {
+                    "Contacts permission is needed to look up \"$contact\". " +
+                            "Enable it in Settings -> Apps -> AgentDesk -> Permissions."
+                }
+                return ToolResult.Error("open_dialer", reason)
+            }
+        }
+        // ACTION_DIAL opens the dialer UI with the phone number pre-filled. The user MUST tap Call. No silent calling.
+        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)
-        return ToolResult.Success("open_dialer", "Dialer opened for $contact. Tap Call to connect.")
+        return ToolResult.Success("open_dialer", "Dialer opened for $contact ($number). Tap Call to connect.")
     }
 
     private fun webSearch(params: Map<String, String>): ToolResult {

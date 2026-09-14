@@ -110,7 +110,7 @@ class CommandGatewayTest {
         toolRunner = FakeToolRunner()
         gateway = CommandGateway(
             ruleEngine = RuleEngine(),
-            policyEngine = PolicyEngine(auditDao, policyDecisionDao),
+            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
             toolRunner = toolRunner,
             commandDao = commandDao,
             auditDao = auditDao,
