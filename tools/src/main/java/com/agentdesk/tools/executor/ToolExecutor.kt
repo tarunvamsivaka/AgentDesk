@@ -3,10 +3,14 @@ package com.agentdesk.tools.executor
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.BatteryManager
+import android.os.Environment
+import android.os.StatFs
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import com.agentdesk.core.common.tools.ToolRunner
 import com.agentdesk.core.common.tools.ToolRunResult
+import com.agentdesk.core.persistence.dao.DeviceDao
 import com.agentdesk.core.persistence.dao.FtsSearchDao
 import com.agentdesk.core.persistence.dao.NoteDao
 import com.agentdesk.core.persistence.entity.NoteEntity
@@ -32,7 +36,8 @@ class ToolExecutor @Inject constructor(
     @ApplicationContext private val context: Context,
     private val tools: Map<String, @JvmSuppressWildcards Tool>,
     private val noteDao: NoteDao,
-    private val ftsSearchDao: FtsSearchDao
+    private val ftsSearchDao: FtsSearchDao,
+    private val deviceDao: DeviceDao
 ) : ToolRunner {
 
     override suspend fun execute(
@@ -69,7 +74,7 @@ class ToolExecutor @Inject constructor(
         "library_search"        -> librarySearch(request.parameters)
         "web_search"            -> webSearch(request.parameters)
         "navigate_maps"         -> navigateMaps(request.parameters)
-        "device_health"         -> ToolResult.Success("device_health", "Navigate to Health screen to view device status.")
+        "device_health"         -> deviceHealth()
         else                    -> ToolResult.Error(request.toolId, "Unknown tool: ${request.toolId}")
     }
 
@@ -141,6 +146,47 @@ class ToolExecutor @Inject constructor(
             // Parsing failed — fall back to opening the alarm app for manual input.
             ToolResult.Success("set_alarm", "Opened the alarm app. Please set the time manually.")
         }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Device health — real metrics (device_health)
+    // ---------------------------------------------------------------------------
+
+    private suspend fun deviceHealth(): ToolResult {
+        val freeStorageMb = statFsAvailableMb()
+        val totalStorageMb = statFsTotalMb()
+        val (batteryPercent, isCharging) = readBattery()
+        val tier = deviceDao.latestCapabilitySnapshot()?.deviceTier?.name
+        return ToolResult.Success(
+            "device_health",
+            buildDeviceHealthSummary(freeStorageMb, totalStorageMb, batteryPercent, isCharging, tier)
+        )
+    }
+
+    private fun statFsAvailableMb(): Long = try {
+        val stat = StatFs(Environment.getDataDirectory().path)
+        (stat.availableBlocksLong * stat.blockSizeLong) / (1024 * 1024)
+    } catch (_: Exception) {
+        0L
+    }
+
+    private fun statFsTotalMb(): Long = try {
+        val stat = StatFs(Environment.getDataDirectory().path)
+        (stat.blockCountLong * stat.blockSizeLong) / (1024 * 1024)
+    } catch (_: Exception) {
+        0L
+    }
+
+    private fun readBattery(): Pair<Int, Boolean> = try {
+        val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val percent = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 0
+        val sticky = context.registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val status = sticky?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL
+        percent to charging
+    } catch (_: Exception) {
+        0 to false
     }
 
     // ---------------------------------------------------------------------------
@@ -262,4 +308,25 @@ private fun formatTime(hour: Int, minute: Int): String {
         else -> hour
     }
     return "%d:%02d %s".format(h12, minute, suffix)
+}
+
+/**
+ * Builds a human-readable device health summary, e.g.
+ * "Storage 87% used (1.2 GB free), battery 78% charging, tier BALANCED".
+ *
+ * Pure function so the format can be unit tested without Android.
+ */
+internal fun buildDeviceHealthSummary(
+    freeStorageMb: Long,
+    totalStorageMb: Long,
+    batteryPercent: Int,
+    isCharging: Boolean,
+    deviceTier: String?
+): String {
+    val usedPercent = if (totalStorageMb > 0) {
+        ((totalStorageMb - freeStorageMb) * 100 / totalStorageMb).toInt()
+    } else 0
+    val freeGb = String.format(java.util.Locale.US, "%.1f", freeStorageMb / 1024.0)
+    val batteryPart = if (isCharging) "battery $batteryPercent% charging" else "battery $batteryPercent%"
+    return "Storage $usedPercent% used ($freeGb GB free), $batteryPart, tier ${deviceTier ?: "UNKNOWN"}"
 }

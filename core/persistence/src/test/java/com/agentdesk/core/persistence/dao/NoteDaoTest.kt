@@ -31,6 +31,11 @@ class NoteDaoTest {
 
         override suspend fun search(query: String): List<NoteEntity> =
             stored.filter { it.body.contains(query, ignoreCase = true) }.take(10)
+
+        override suspend fun deleteAll() {
+            stored.clear()
+            _notes.value = emptyList()
+        }
     }
 
     private fun note(id: String, title: String, body: String, createdAt: Long) =

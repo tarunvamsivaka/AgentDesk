@@ -18,4 +18,7 @@ interface AuditDao {
 
     @Query("DELETE FROM audit_event WHERE occurred_at < :beforeEpoch")
     suspend fun deleteOlderThan(beforeEpoch: Long)
+
+    @Query("DELETE FROM audit_event")
+    suspend fun deleteAll()
 }

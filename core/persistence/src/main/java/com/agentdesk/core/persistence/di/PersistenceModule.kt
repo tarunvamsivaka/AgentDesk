@@ -55,5 +55,8 @@ object PersistenceModule {
     fun providePolicyDecisionDao(db: AgentDeskDatabase): PolicyDecisionDao = db.policyDecisionDao()
 
     @Provides
+    fun provideConfirmationDao(db: AgentDeskDatabase): ConfirmationDao = db.confirmationDao()
+
+    @Provides
     fun provideNoteDao(db: AgentDeskDatabase): NoteDao = db.noteDao()
 }

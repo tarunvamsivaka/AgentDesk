@@ -67,4 +67,17 @@ interface KnowledgeDao {
 
     @Query("SELECT * FROM extracted_entity WHERE shared_item_id = :itemId")
     suspend fun entitiesForSharedItem(itemId: Long): List<ExtractedEntityEntity>
+
+    // Bulk clears (Settings "Delete all local data")
+    @Query("DELETE FROM text_chunk")
+    suspend fun deleteAllChunks()
+
+    @Query("DELETE FROM document")
+    suspend fun deleteAllDocuments()
+
+    @Query("DELETE FROM knowledge_source")
+    suspend fun deleteAllSources()
+
+    @Query("DELETE FROM shared_item")
+    suspend fun deleteAllSharedItems()
 }

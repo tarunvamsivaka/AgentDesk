@@ -17,4 +17,7 @@ interface NoteDao {
 
     @Query("SELECT * FROM notes WHERE body LIKE '%' || :query || '%' LIMIT 10")
     suspend fun search(query: String): List<NoteEntity>
+
+    @Query("DELETE FROM notes")
+    suspend fun deleteAll()
 }

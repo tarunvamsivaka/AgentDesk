@@ -57,6 +57,9 @@ private class FakeAuditDao : AuditDao {
         return events.size.toLong()
     }
     override suspend fun deleteOlderThan(beforeEpoch: Long) {}
+    override suspend fun deleteAll() {
+        events.clear()
+    }
 }
 
 private class FakePolicyDecisionDao : PolicyDecisionDao {

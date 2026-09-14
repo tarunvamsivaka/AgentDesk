@@ -23,6 +23,7 @@ android {
 
 dependencies {
     implementation(project(":core:common"))
+    implementation(project(":core:persistence"))
     implementation(project(":knowledge"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -38,4 +39,5 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

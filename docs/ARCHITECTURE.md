@@ -32,8 +32,8 @@ Each layer may only depend on layers below it. No circular dependencies are perm
 | `:knowledge` | `:core:common`, `:core:persistence`, `:core:device` |
 | `:feature:onboarding` | `:core:common`, `:core:persistence`, `:core:settings`, `:core:device` |
 | `:feature:chat` | `:core:common`, `:core:persistence`, `:agent`, `:tools` |
-| `:feature:library` | `:core:common`, `:knowledge` |
-| `:feature:health` | `:core:common`, `:core:device` |
+| `:feature:library` | `:core:common`, `:core:persistence`, `:knowledge` |
+| `:feature:health` | `:core:common`, `:core:persistence`, `:core:device` |
 | `:feature:settings` | `:core:common`, `:core:settings`, `:core:security`, `:core:persistence` |
 | `:app` | all of the above |
 

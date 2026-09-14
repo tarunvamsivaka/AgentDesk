@@ -24,6 +24,7 @@ android {
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:device"))
+    implementation(project(":core:persistence"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
@@ -33,6 +34,7 @@ dependencies {
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
+    implementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
 }

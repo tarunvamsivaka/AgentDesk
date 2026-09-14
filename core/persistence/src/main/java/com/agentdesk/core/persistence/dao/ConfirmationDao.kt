@@ -18,4 +18,14 @@ interface ConfirmationDao {
 
     @Query("DELETE FROM confirmation_record WHERE prompted_at < :beforeMs")
     suspend fun deleteOlderThan(beforeMs: Long)
+
+    @Query(
+        "UPDATE confirmation_record SET user_confirmed = :confirmed, " +
+        "responded_at = :respondedAt WHERE id = :id"
+    )
+    suspend fun recordResponse(
+        id: Long,
+        confirmed: Boolean,
+        respondedAt: Long = System.currentTimeMillis()
+    )
 }
