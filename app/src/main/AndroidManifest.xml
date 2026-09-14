@@ -33,9 +33,8 @@
     <!-- Notifications (API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Media access (user-initiated import only) -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- SAF import needs no media permissions; only audio retained for
+         user-initiated share-bridge playback -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <!-- Calendar (create event, read for display) -->

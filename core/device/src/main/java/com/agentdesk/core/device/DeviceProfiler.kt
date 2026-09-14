@@ -2,7 +2,6 @@ package com.agentdesk.core.device
 
 import android.app.ActivityManager
 import android.content.Context
-import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
 import android.os.StatFs
@@ -62,12 +61,10 @@ class DeviceProfiler @Inject constructor(
     }
 
     fun getThermalStatus(): Int {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-            powerManager.currentThermalStatus
-        } else {
-            0 // Not available below API 29
-        }
+        // currentThermalStatus is available since API 29 — the project minSdk —
+        // so no SDK_INT guard is needed.
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        return powerManager.currentThermalStatus
     }
 
     fun classifyTier(): DeviceTier {

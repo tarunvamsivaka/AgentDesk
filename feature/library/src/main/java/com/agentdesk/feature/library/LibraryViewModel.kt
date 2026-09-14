@@ -65,12 +65,13 @@ class LibraryViewModel @Inject constructor(
             title = title.ifBlank { "Untitled" },
             preview = body.take(PREVIEW_CHARS) + if (truncated) "…" else "",
             body = body,
-            dateLabel = DATE_FORMAT.format(Date(createdAt))
+            // Per-call Locale: reflects runtime locale changes (ConstantLocale lint fix)
+            dateLabel = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+                .format(Date(createdAt))
         )
     }
 
     companion object {
         private const val PREVIEW_CHARS = 80
-        private val DATE_FORMAT = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
     }
 }

@@ -113,14 +113,18 @@ class IndexWorker @AssistedInject constructor(
 
     private fun collectIndexableFiles(root: DocumentFile): List<DocumentFile> {
         val result = mutableListOf<DocumentFile>()
-        val queue = ArrayDeque<DocumentFile>()
-        queue.addLast(root)
-        while (queue.isNotEmpty() && result.size < MAX_FILES) {
-            val current = queue.removeFirst()
+        data class Entry(val file: DocumentFile, val depth: Int)
+        val queue = ArrayDeque<Entry>()
+        queue.addLast(Entry(root, 0))
+        var visited = 0
+        while (queue.isNotEmpty() && result.size < MAX_FILES && visited < MAX_VISITED) {
+            val (current, depth) = queue.removeFirst()
+            visited++
+            if (depth >= MAX_DEPTH) continue
             for (child in current.listFiles()) {
-                if (result.size >= MAX_FILES) break
+                if (result.size >= MAX_FILES || visited >= MAX_VISITED) break
                 when {
-                    child.isDirectory -> queue.addLast(child)
+                    child.isDirectory -> queue.addLast(Entry(child, depth + 1))
                     child.isFile && isSupportedFile(child.name) -> result.add(child)
                 }
             }
@@ -166,6 +170,8 @@ class IndexWorker @AssistedInject constructor(
         const val KEY_TREE_URI = "tree_uri"
 
         private const val MAX_FILES = 50
+        private const val MAX_DEPTH = 8
+        private const val MAX_VISITED = 500
         private const val CHUNK_SIZE = 500
         private const val MIN_FREE_BYTES = 500L * 1024L * 1024L // >500MB free
     }

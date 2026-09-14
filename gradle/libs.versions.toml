@@ -21,6 +21,7 @@ biometric = { group = "androidx.biometric", name = "biometric", version.ref = "b
 documentfile = { group = "androidx.documentfile", name = "documentfile", version = "1.0.1" }
 android-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
 android-lifecycle-runtime = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+android-lifecycle-livedata = { group = "androidx.lifecycle", name = "lifecycle-livedata-ktx", version.ref = "lifecycle" }
 android-lifecycle-viewmodel = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 android-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activity-compose" }
 

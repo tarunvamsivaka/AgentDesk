@@ -55,11 +55,6 @@ class RuleEngine @Inject constructor() {
                 extractor = { m -> mapOf("text" to m.groupValues[1].trim()) }
             ),
             Rule(
-                intentName = Intents.APP_OPEN,
-                pattern = Regex("""(?:open|launch|start)\s+(.+)"""),
-                extractor = { m -> mapOf("appName" to m.groupValues[1].trim()) }
-            ),
-            Rule(
                 intentName = Intents.CALENDAR_CREATE,
                 pattern = Regex("""(?:add|create|schedule)\s+(?:a\s+)?(?:meeting|event|appointment)(?:\s+(.+))?"""),
                 extractor = { m -> mapOf("title" to m.groupValues[1].trim()) }
@@ -79,10 +74,17 @@ class RuleEngine @Inject constructor() {
                 pattern = Regex("""(?:call|dial|ring)\s+(.+)"""),
                 extractor = { m -> mapOf("contact" to m.groupValues[1].trim()) }
             ),
+            // NAVIGATE_MAP comes before the generic APP_OPEN catch-all so
+            // navigation phrasings are never swallowed by open/launch/start (BUG-012)
             Rule(
                 intentName = Intents.NAVIGATE_MAP,
                 pattern = Regex("""(?:navigate|directions|take me)\s+(?:to\s+)?(.+)"""),
                 extractor = { m -> mapOf("destination" to m.groupValues[1].trim()) }
+            ),
+            Rule(
+                intentName = Intents.APP_OPEN,
+                pattern = Regex("""(?:open|launch|start)\s+(.+)"""),
+                extractor = { m -> mapOf("appName" to m.groupValues[1].trim()) }
             )
         )
 

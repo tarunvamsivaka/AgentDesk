@@ -32,6 +32,7 @@ dependencies {
     implementation(libs.compose.icons.extended)
     implementation(libs.android.activity.compose)
     implementation(libs.android.lifecycle.viewmodel)
+    implementation(libs.android.lifecycle.livedata)
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)
     ksp(libs.hilt.compiler)

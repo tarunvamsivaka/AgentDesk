@@ -13,13 +13,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import androidx.lifecycle.asFlow
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -38,9 +34,9 @@ interface LibraryImportController {
 }
 
 /**
- * WorkManager-backed implementation. WorkManager 2.9.0 has no Flow
- * observation APIs, so state is polled on the IO dispatcher until a
- * terminal state is reached.
+ * WorkManager-backed implementation. State is observed via
+ * WorkManager's LiveData API (no manual polling loop, no blocking
+ * get() calls — the flow tracks WorkManager updates directly).
  */
 @Singleton
 class WorkManagerImportController @Inject constructor(
@@ -56,32 +52,16 @@ class WorkManagerImportController @Inject constructor(
         workManager.enqueueUniqueWork(IndexWorker.WORK_NAME, ExistingWorkPolicy.REPLACE, request)
     }
 
-    override fun observeIndexState(): Flow<LibraryUiState> = flow {
-        while (currentCoroutineContext().isActive) {
-            val state = withContext(Dispatchers.IO) {
-                workManager.getWorkInfosForUniqueWork(IndexWorker.WORK_NAME).get()
-                    .firstOrNull()?.state
-            }
-            emit(toUiState(state))
-            if (state in TERMINAL_STATES) break
-            delay(POLL_INTERVAL_MS)
-        }
-    }
+    override fun observeIndexState(): Flow<LibraryUiState> =
+        workManager.getWorkInfosForUniqueWorkLiveData(IndexWorker.WORK_NAME)
+            .asFlow()
+            .map { infos -> toUiState(infos.firstOrNull()?.state) }
 
     private fun toUiState(state: WorkInfo.State?): LibraryUiState = when (state) {
         WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED -> LibraryUiState.Indexing
         WorkInfo.State.SUCCEEDED -> LibraryUiState.Ready
         WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> LibraryUiState.Error("Import failed.")
         null -> LibraryUiState.Idle
-    }
-
-    companion object {
-        private val TERMINAL_STATES = setOf(
-            WorkInfo.State.SUCCEEDED,
-            WorkInfo.State.FAILED,
-            WorkInfo.State.CANCELLED
-        )
-        private const val POLL_INTERVAL_MS = 500L
     }
 }
 

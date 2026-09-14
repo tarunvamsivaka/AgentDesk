@@ -117,6 +117,7 @@ private fun RejectedRow(decision: PolicyDecisionEntity) {
     }
 }
 
-private val DATE_FORMAT = SimpleDateFormat("MMM d, HH:mm:ss", Locale.getDefault())
-
-private fun formatDate(epochMs: Long): String = DATE_FORMAT.format(Date(epochMs))
+// Per-call Locale: SimpleDateFormat is created inside formatDate() so runtime
+// locale changes are reflected (ConstantLocale lint fix)
+private fun formatDate(epochMs: Long): String =
+    SimpleDateFormat("MMM d, HH:mm:ss", Locale.getDefault()).format(Date(epochMs))

@@ -2,6 +2,7 @@ package com.agentdesk.tools.impl
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import com.agentdesk.core.common.model.RiskLevel
 import com.agentdesk.tools.executor.ToolRequest
 import com.agentdesk.tools.executor.ToolResult
@@ -49,6 +50,16 @@ class AppLaunchTool @Inject constructor(
         }
 
         if (match == null) {
+            // Fuzzy-match fallback: if the user asked for maps/navigation, open
+            // Maps home via a geo: URI instead of erroring.
+            val lower = appName.lowercase()
+            if (lower.contains("map") || lower.contains("navigation")) {
+                val geo = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0")).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(geo)
+                return ToolResult.Success(definition.id, "Opened Maps home for \"$appName\".")
+            }
             return ToolResult.Error(
                 definition.id,
                 "App \"$appName\" not found on this device."
