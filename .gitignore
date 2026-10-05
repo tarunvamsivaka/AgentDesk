@@ -22,3 +22,5 @@ local.properties
 Thumbs.db
 build_output*.txt
 test_output*.txt
+.kotlin/
+.agents/teamwork/
