@@ -22,75 +22,91 @@ import javax.inject.Singleton
  * Call [profileDevice] once on startup and cache the result in the DB via DeviceDao.
  */
 @Singleton
-class DeviceProfiler @Inject constructor(
+open class DeviceProfiler @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+
+    // Secondary constructor for testing/subclassing without Android system services
+    constructor() : this(android.content.ContextWrapper(null))
 
     private val activityManager by lazy {
         context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     }
 
-    fun getTotalRamMb(): Long {
-        val info = ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(info)
-        return info.totalMem / (1024 * 1024)
-    }
+    private fun memoryInfo(): ActivityManager.MemoryInfo =
+        ActivityManager.MemoryInfo().also { activityManager.getMemoryInfo(it) }
 
-    fun getAvailableRamMb(): Long {
-        val info = ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(info)
-        return info.availMem / (1024 * 1024)
-    }
+    private fun statFs(): StatFs = StatFs(Environment.getDataDirectory().path)
 
-    fun isLowMemory(): Boolean {
-        val info = ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(info)
-        return info.lowMemory
-    }
+    open fun getTotalRamMb(): Long = memoryInfo().totalMem / (1024 * 1024)
 
-    fun getCpuCores(): Int = Runtime.getRuntime().availableProcessors()
+    open fun getAvailableRamMb(): Long = memoryInfo().availMem / (1024 * 1024)
 
-    fun getTotalStorageMb(): Long {
-        val stat = StatFs(Environment.getDataDirectory().path)
-        return (stat.blockCountLong * stat.blockSizeLong) / (1024 * 1024)
-    }
+    open fun isLowMemory(): Boolean = memoryInfo().lowMemory
 
-    fun getAvailableStorageMb(): Long {
-        val stat = StatFs(Environment.getDataDirectory().path)
-        return (stat.availableBlocksLong * stat.blockSizeLong) / (1024 * 1024)
-    }
+    open fun getCpuCores(): Int = Runtime.getRuntime().availableProcessors()
 
-    fun getThermalStatus(): Int {
-        // currentThermalStatus is available since API 29 — the project minSdk —
-        // so no SDK_INT guard is needed.
+    open fun getTotalStorageMb(): Long = statFs().let { (it.blockCountLong * it.blockSizeLong) / (1024 * 1024) }
+
+    open fun getAvailableStorageMb(): Long = statFs().let { (it.availableBlocksLong * it.blockSizeLong) / (1024 * 1024) }
+
+    open fun getThermalStatus(): Int {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         return powerManager.currentThermalStatus
     }
 
-    fun classifyTier(): DeviceTier {
-        val availRam = getAvailableRamMb()
-        val totalRam = getTotalRamMb()
+    open fun classifyTier(): DeviceTier {
+        val mem = memoryInfo()
+        val availRam = mem.availMem / (1024 * 1024)
+        val totalRam = mem.totalMem / (1024 * 1024)
         val availStorage = getAvailableStorageMb()
         val cores = getCpuCores()
 
-        return when {
-            availRam < 256 || availStorage < 200 -> DeviceTier.EMERGENCY
-            totalRam < 2048 || cores <= 2 -> DeviceTier.LITE
-            totalRam < 4096 || cores <= 4 -> DeviceTier.BALANCED
-            else -> DeviceTier.FULL
-        }
+        return classifyTier(availRam, totalRam, availStorage, cores)
     }
+
+    fun classifyTier(
+        availRamMb: Long,
+        totalRamMb: Long,
+        availStorageMb: Long,
+        cores: Int
+    ): DeviceTier = Companion.classifyTier(availRamMb, totalRamMb, availStorageMb, cores)
 
     /** Builds a DeviceCapabilitySnapshotEntity representing the current device state. */
     fun buildSnapshot(): com.agentdesk.core.persistence.entity.DeviceCapabilitySnapshotEntity {
+        val mem = memoryInfo()
+        val totalRam = mem.totalMem / (1024 * 1024)
+        val availRam = mem.availMem / (1024 * 1024)
+        val stat = statFs()
+        val blockSize = stat.blockSizeLong
+        val availStorage = (stat.availableBlocksLong * blockSize) / (1024 * 1024)
+        val totalStorage = (stat.blockCountLong * blockSize) / (1024 * 1024)
+        val cores = getCpuCores()
+        val tier = classifyTier(availRam, totalRam, availStorage, cores)
         return com.agentdesk.core.persistence.entity.DeviceCapabilitySnapshotEntity(
-            totalRamMb = getTotalRamMb(),
-            availableRamMb = getAvailableRamMb(),
-            availableStorageMb = getAvailableStorageMb(),
-            totalStorageMb = android.os.Environment.getDataDirectory().totalSpace / (1024 * 1024),
-            cpuCores = getCpuCores(),
-            deviceTier = classifyTier(),
+            totalRamMb = totalRam,
+            availableRamMb = availRam,
+            availableStorageMb = availStorage,
+            totalStorageMb = totalStorage,
+            cpuCores = cores,
+            deviceTier = tier,
             capturedAt = System.currentTimeMillis()
         )
+    }
+
+    companion object {
+        fun classifyTier(
+            availRamMb: Long,
+            totalRamMb: Long,
+            availStorageMb: Long,
+            cores: Int
+        ): DeviceTier {
+            return when {
+                availRamMb < 256 || availStorageMb < 200 -> DeviceTier.EMERGENCY
+                totalRamMb < 2048 || cores <= 2 -> DeviceTier.LITE
+                totalRamMb < 4096 || cores <= 4 -> DeviceTier.BALANCED
+                else -> DeviceTier.FULL
+            }
+        }
     }
 }

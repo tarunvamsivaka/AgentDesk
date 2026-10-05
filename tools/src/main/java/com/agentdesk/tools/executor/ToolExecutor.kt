@@ -159,7 +159,7 @@ class ToolExecutor @Inject constructor(
 
     private suspend fun deviceHealth(): ToolResult {
         val (freeStorageMb, totalStorageMb) = withContext(Dispatchers.IO) {
-            statFsAvailableMb() to statFsTotalMb()
+            readStorageMb()
         }
         val (batteryPercent, isCharging) = withContext(Dispatchers.IO) {
             readBattery()
@@ -171,18 +171,14 @@ class ToolExecutor @Inject constructor(
         )
     }
 
-    private fun statFsAvailableMb(): Long = try {
+    private fun readStorageMb(): Pair<Long, Long> = try {
         val stat = StatFs(Environment.getDataDirectory().path)
-        (stat.availableBlocksLong * stat.blockSizeLong) / (1024 * 1024)
+        val bs = stat.blockSizeLong
+        val free = (stat.availableBlocksLong * bs) / (1024 * 1024)
+        val total = (stat.blockCountLong * bs) / (1024 * 1024)
+        free to total
     } catch (_: Exception) {
-        0L
-    }
-
-    private fun statFsTotalMb(): Long = try {
-        val stat = StatFs(Environment.getDataDirectory().path)
-        (stat.blockCountLong * stat.blockSizeLong) / (1024 * 1024)
-    } catch (_: Exception) {
-        0L
+        0L to 0L
     }
 
     private fun readBattery(): Pair<Int, Boolean> = try {

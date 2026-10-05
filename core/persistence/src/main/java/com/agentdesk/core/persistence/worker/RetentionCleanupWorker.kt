@@ -3,12 +3,14 @@ package com.agentdesk.core.persistence.worker
 import android.content.Context
 import android.util.Log
 import androidx.hilt.work.HiltWorker
+import androidx.room.withTransaction
 import androidx.work.*
 import com.agentdesk.core.persistence.dao.AuditDao
 import com.agentdesk.core.persistence.dao.ConfirmationDao
 import com.agentdesk.core.persistence.dao.FtsSearchDao
 import com.agentdesk.core.persistence.dao.KnowledgeDao
 import com.agentdesk.core.persistence.dao.PolicyDecisionDao
+import com.agentdesk.core.persistence.db.AgentDeskDatabase
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
@@ -29,6 +31,7 @@ import java.util.concurrent.TimeUnit
 class RetentionCleanupWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
+    private val agentDeskDatabase: AgentDeskDatabase,
     private val auditDao: AuditDao,
     private val policyDecisionDao: PolicyDecisionDao,
     private val confirmationDao: ConfirmationDao,
@@ -41,11 +44,13 @@ class RetentionCleanupWorker @AssistedInject constructor(
             val now = System.currentTimeMillis()
             val thirtyDaysAgoMs = now - RETENTION_MS
             val sevenDaysAgoMs = now - SHORT_RETENTION_MS
-            auditDao.deleteOlderThan(thirtyDaysAgoMs)
-            policyDecisionDao.deleteOlderThan(thirtyDaysAgoMs)
-            confirmationDao.deleteOlderThan(thirtyDaysAgoMs)
-            knowledgeDao.deleteSharedItemsOlderThan(sevenDaysAgoMs)
-            knowledgeDao.deleteExpiredEntities(nowMs = now, cutoffMs = sevenDaysAgoMs)
+            agentDeskDatabase.withTransaction {
+                auditDao.deleteOlderThan(thirtyDaysAgoMs)
+                policyDecisionDao.deleteOlderThan(thirtyDaysAgoMs)
+                confirmationDao.deleteOlderThan(thirtyDaysAgoMs)
+                knowledgeDao.deleteSharedItemsOlderThan(sevenDaysAgoMs)
+                knowledgeDao.deleteExpiredEntities(nowMs = now, cutoffMs = sevenDaysAgoMs)
+            }
             val chunkCount = ftsSearchDao.countChunks()
             Log.i(TAG, "Retention cleanup done. FTS chunks: $chunkCount")
             Result.success()

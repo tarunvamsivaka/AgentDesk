@@ -43,11 +43,23 @@ class AppLaunchTool @Inject constructor(
         val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val installed = pm.queryIntentActivities(launcherIntent, 0)
 
-        val match = installed.firstOrNull {
-            it.loadLabel(pm).toString().equals(appName, ignoreCase = true)
-        } ?: installed.firstOrNull {
-            it.loadLabel(pm).toString().contains(appName, ignoreCase = true)
+        var exactMatch: android.content.pm.ResolveInfo? = null
+        var partialMatch: android.content.pm.ResolveInfo? = null
+        var matchedLabel: String? = null
+
+        for (info in installed) {
+            val label = info.loadLabel(pm).toString()
+            if (label.equals(appName, ignoreCase = true)) {
+                exactMatch = info
+                matchedLabel = label
+                break
+            } else if (partialMatch == null && label.contains(appName, ignoreCase = true)) {
+                partialMatch = info
+                matchedLabel = label
+            }
         }
+
+        val match = exactMatch ?: partialMatch
 
         if (match == null) {
             // Fuzzy-match fallback: if the user asked for maps/navigation, open
@@ -66,7 +78,7 @@ class AppLaunchTool @Inject constructor(
             )
         }
 
-        val label = match.loadLabel(pm).toString()
+        val label = matchedLabel ?: match.loadLabel(pm).toString()
         val launchIntent = pm.getLaunchIntentForPackage(match.activityInfo.packageName)
             ?: return ToolResult.Error(definition.id, "Couldn't launch $label.")
 

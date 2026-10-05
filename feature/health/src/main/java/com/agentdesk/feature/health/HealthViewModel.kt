@@ -11,10 +11,15 @@ import com.agentdesk.core.device.DeviceProfiler
 import com.agentdesk.core.persistence.dao.DeviceDao
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /** Live device metrics for the Health screen. */
@@ -35,11 +40,22 @@ data class HealthUiState(
  * fresh classification when no snapshot exists.
  */
 @HiltViewModel
-class HealthViewModel @Inject constructor(
+class HealthViewModel(
     private val deviceProfiler: DeviceProfiler,
     private val deviceDao: DeviceDao,
-    @ApplicationContext private val context: Context
+    private val context: Context,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    coroutineScope: CoroutineScope? = null
 ) : ViewModel() {
+
+    @Inject
+    constructor(
+        deviceProfiler: DeviceProfiler,
+        deviceDao: DeviceDao,
+        @ApplicationContext context: Context
+    ) : this(deviceProfiler, deviceDao, context, Dispatchers.IO, null)
+
+    private val scope: CoroutineScope = coroutineScope ?: viewModelScope
 
     private val _uiState = MutableStateFlow(HealthUiState())
     val uiState: StateFlow<HealthUiState> = _uiState.asStateFlow()
@@ -49,18 +65,21 @@ class HealthViewModel @Inject constructor(
     }
 
     /** Re-reads all metrics. Safe to call repeatedly (e.g. on screen entry). */
-    fun refresh() {
-        viewModelScope.launch {
-            val tier = deviceDao.latestCapabilitySnapshot()?.deviceTier
-                ?: deviceProfiler.classifyTier()
-            _uiState.value = HealthUiState(
-                freeStorageMb = deviceProfiler.getAvailableStorageMb(),
-                totalStorageMb = deviceProfiler.getTotalStorageMb(),
-                batteryPercent = readBatteryPercent(),
-                isCharging = readIsCharging(),
-                thermalStatus = deviceProfiler.getThermalStatus(),
-                deviceTier = tier
-            )
+    fun refresh(): Job {
+        return scope.launch {
+            val newState = withContext(ioDispatcher) {
+                val tier = deviceDao.latestCapabilitySnapshot()?.deviceTier
+                    ?: deviceProfiler.classifyTier()
+                HealthUiState(
+                    freeStorageMb = deviceProfiler.getAvailableStorageMb(),
+                    totalStorageMb = deviceProfiler.getTotalStorageMb(),
+                    batteryPercent = readBatteryPercent(),
+                    isCharging = readIsCharging(),
+                    thermalStatus = deviceProfiler.getThermalStatus(),
+                    deviceTier = tier
+                )
+            }
+            _uiState.value = newState
         }
     }
 
