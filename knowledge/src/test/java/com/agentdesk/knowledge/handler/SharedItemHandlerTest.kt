@@ -1,0 +1,102 @@
+package com.agentdesk.knowledge.handler
+
+import android.content.Intent
+import com.agentdesk.core.common.model.IndexStatus
+import com.agentdesk.core.persistence.dao.KnowledgeDao
+import com.agentdesk.core.persistence.entity.DocumentEntity
+import com.agentdesk.core.persistence.entity.ExtractedEntityEntity
+import com.agentdesk.core.persistence.entity.IndexJobEntity
+import com.agentdesk.core.persistence.entity.KnowledgeSourceEntity
+import com.agentdesk.core.persistence.entity.SharedItemEntity
+import com.agentdesk.core.persistence.entity.TextChunkEntity
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+private class FakeKnowledgeDao : KnowledgeDao {
+    val sharedItems = mutableListOf<SharedItemEntity>()
+    val extractedEntities = mutableListOf<ExtractedEntityEntity>()
+
+    override fun observeSources(): Flow<List<KnowledgeSourceEntity>> = emptyFlow()
+    override suspend fun findSourceById(id: Long): KnowledgeSourceEntity? = null
+    override suspend fun insertSource(source: KnowledgeSourceEntity): Long = 1L
+    override suspend fun updateSource(source: KnowledgeSourceEntity) {}
+    override suspend fun deleteSource(source: KnowledgeSourceEntity) {}
+    override suspend fun updateIndexStatus(sourceId: Long, status: IndexStatus) {}
+    override suspend fun insertDocument(document: DocumentEntity): Long = 1L
+    override suspend fun documentsForSource(sourceId: Long): List<DocumentEntity> = emptyList()
+    override suspend fun insertChunks(chunks: List<TextChunkEntity>) {}
+    override suspend fun chunksForDocument(documentId: Long): List<TextChunkEntity> = emptyList()
+    override suspend fun findChunkById(chunkId: Long): TextChunkEntity? = null
+    override suspend fun insertIndexJob(job: IndexJobEntity): Long = 1L
+    override suspend fun updateIndexJob(job: IndexJobEntity) {}
+    override suspend fun latestJobForSource(sourceId: Long): IndexJobEntity? = null
+
+    override suspend fun insertSharedItem(item: SharedItemEntity): Long {
+        sharedItems.add(item)
+        return sharedItems.size.toLong()
+    }
+
+    override suspend fun insertExtractedEntity(entity: ExtractedEntityEntity): Long {
+        extractedEntities.add(entity)
+        return extractedEntities.size.toLong()
+    }
+
+    override fun observeSharedItems(limit: Int): Flow<List<SharedItemEntity>> = emptyFlow()
+    override suspend fun entitiesForSharedItem(itemId: Long): List<ExtractedEntityEntity> =
+        extractedEntities.filter { it.sharedItemId == itemId }
+
+    override suspend fun deleteAllChunks() {}
+    override suspend fun deleteAllDocuments() {}
+    override suspend fun deleteAllSources() {}
+    override suspend fun deleteAllSharedItems() {
+        sharedItems.clear()
+        extractedEntities.clear()
+    }
+
+    override suspend fun deleteSharedItemsOlderThan(beforeMs: Long) {}
+    override suspend fun deleteExpiredEntities(nowMs: Long, cutoffMs: Long) {}
+}
+
+class SharedItemHandlerTest {
+
+    private lateinit var fakeKnowledgeDao: FakeKnowledgeDao
+    private lateinit var entityExtractor: EntityExtractor
+    private lateinit var handler: SharedItemHandler
+
+    @Before
+    fun setUp() {
+        fakeKnowledgeDao = FakeKnowledgeDao()
+        entityExtractor = EntityExtractor()
+        handler = SharedItemHandler(fakeKnowledgeDao, entityExtractor)
+    }
+
+    @Test
+    fun testEntityExtractorExtractsAllSupportedTypes() {
+        val sampleText = """
+            Meeting scheduled for 2026-10-15T14:30:00.
+            Call me at 555-123-4567 or email test@example.com.
+            Visit https://agentdesk.ai for docs.
+            Tracking number is 1Z9999999999999999.
+        """.trimIndent()
+
+        val entities = entityExtractor.extract(sampleText, sharedItemId = 42L)
+        val typeMap = entities.groupBy { it.entityType }
+
+        assertTrue(typeMap.containsKey("DATE_TIME"))
+        assertTrue(typeMap.containsKey("PHONE"))
+        assertTrue(typeMap.containsKey("EMAIL"))
+        assertTrue(typeMap.containsKey("URL"))
+        assertTrue(typeMap.containsKey("TRACKING_ID"))
+
+        assertEquals("555-123-4567", typeMap["PHONE"]?.first()?.value)
+        assertEquals("test@example.com", typeMap["EMAIL"]?.first()?.value)
+        assertEquals("https://agentdesk.ai", typeMap["URL"]?.first()?.value)
+        assertEquals("1Z9999999999999999", typeMap["TRACKING_ID"]?.first()?.value)
+    }
+}

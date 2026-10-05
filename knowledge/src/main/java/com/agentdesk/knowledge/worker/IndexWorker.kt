@@ -18,6 +18,9 @@ import com.agentdesk.core.persistence.entity.KnowledgeSourceEntity
 import com.agentdesk.core.persistence.entity.TextChunkEntity
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
@@ -55,15 +58,24 @@ class IndexWorker @AssistedInject constructor(
             ?: return Result.failure()
 
         val files = collectIndexableFiles(root)
-        for (file in files) {
-            // Stop cleanly at the top of each file loop instead of mid-file
-            if (isStopped) return Result.retry()
-            indexFile(file)
+        try {
+            for (file in files) {
+                // Stop cleanly at the top of each file loop instead of mid-file
+                if (isStopped) return Result.retry()
+                indexFile(file)
+                if (isStopped) return Result.retry()
+            }
+            return Result.success()
+        } catch (e: CancellationException) {
+            return Result.retry()
+        } catch (_: Exception) {
+            return Result.failure()
         }
-        return Result.success()
     }
 
     private suspend fun indexFile(file: DocumentFile) {
+        if (isStopped) return
+        if (file.length() > MAX_FILE_SIZE_BYTES) return
         val text = readText(file) ?: return
         val sourceType = if (file.name?.endsWith(".md", ignoreCase = true) == true) {
             KnowledgeSourceType.MARKDOWN_FILE
@@ -71,40 +83,63 @@ class IndexWorker @AssistedInject constructor(
             KnowledgeSourceType.TEXT_FILE
         }
 
-        val sourceId = knowledgeDao.insertSource(
-            KnowledgeSourceEntity(
-                displayName = file.name ?: "Untitled",
-                uri = file.uri.toString(),
-                sourceType = sourceType,
-                fileSizeBytes = file.length(),
-                indexStatus = IndexStatus.RUNNING
-            )
-        )
-
-        // Atomic per file: document + chunks + FTS sync either fully apply or not at all
-        agentDeskDatabase.withTransaction {
-            val documentId = knowledgeDao.insertDocument(
-                DocumentEntity(
-                    sourceId = sourceId,
-                    title = file.name ?: "Untitled",
-                    charCount = text.length
+        var sourceId: Long? = null
+        try {
+            sourceId = knowledgeDao.insertSource(
+                KnowledgeSourceEntity(
+                    displayName = file.name ?: "Untitled",
+                    uri = file.uri.toString(),
+                    sourceType = sourceType,
+                    fileSizeBytes = file.length(),
+                    indexStatus = IndexStatus.RUNNING
                 )
             )
 
-            val chunks = text.chunked(CHUNK_SIZE)
-            knowledgeDao.insertChunks(
-                chunks.mapIndexed { index, content ->
-                    TextChunkEntity(
-                        documentId = documentId,
-                        chunkIndex = index,
-                        content = content,
-                        charOffset = index * CHUNK_SIZE
-                    )
-                }
-            )
-        }
+            if (isStopped) {
+                knowledgeDao.updateIndexStatus(sourceId, IndexStatus.FAILED)
+                return
+            }
 
-        knowledgeDao.updateIndexStatus(sourceId, IndexStatus.COMPLETED)
+            // Atomic per file: document + chunks + FTS sync either fully apply or not at all
+            agentDeskDatabase.withTransaction {
+                val documentId = knowledgeDao.insertDocument(
+                    DocumentEntity(
+                        sourceId = sourceId,
+                        title = file.name ?: "Untitled",
+                        charCount = text.length
+                    )
+                )
+
+                val chunks = text.chunked(CHUNK_SIZE)
+                knowledgeDao.insertChunks(
+                    chunks.mapIndexed { index, content ->
+                        TextChunkEntity(
+                            documentId = documentId,
+                            chunkIndex = index,
+                            content = content,
+                            charOffset = index * CHUNK_SIZE
+                        )
+                    }
+                )
+            }
+
+            if (isStopped) {
+                knowledgeDao.updateIndexStatus(sourceId, IndexStatus.FAILED)
+            } else {
+                knowledgeDao.updateIndexStatus(sourceId, IndexStatus.COMPLETED)
+            }
+        } catch (e: Throwable) {
+            sourceId?.let { id ->
+                withContext(NonCancellable) {
+                    try {
+                        knowledgeDao.updateIndexStatus(id, IndexStatus.FAILED)
+                    } catch (_: Exception) {
+                        // Suppress secondary cleanup failure
+                    }
+                }
+            }
+            throw e
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -134,15 +169,25 @@ class IndexWorker @AssistedInject constructor(
 
     private fun isSupportedFile(name: String?): Boolean {
         val lower = name?.lowercase() ?: return false
-        return lower.endsWith(".txt") || lower.endsWith(".md")
+        return lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".docx")
     }
 
-    private fun readText(file: DocumentFile): String? = try {
-        applicationContext.contentResolver.openInputStream(file.uri)?.use { input ->
-            input.bufferedReader(Charsets.UTF_8).readText()
+    private fun readText(file: DocumentFile): String? {
+        if (file.length() > MAX_FILE_SIZE_BYTES) {
+            return null
         }
-    } catch (_: Exception) {
-        null
+        return try {
+            val lower = file.name?.lowercase() ?: ""
+            applicationContext.contentResolver.openInputStream(file.uri)?.use { input ->
+                if (lower.endsWith(".docx")) {
+                    com.agentdesk.knowledge.parser.DocxTextExtractor.extractText(input)
+                } else {
+                    input.bufferedReader(Charsets.UTF_8).readText()
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun hasEnoughFreeStorage(context: Context): Boolean {
@@ -169,6 +214,7 @@ class IndexWorker @AssistedInject constructor(
         const val WORK_NAME = "agentdesk_index_folder"
         const val KEY_TREE_URI = "tree_uri"
 
+        const val MAX_FILE_SIZE_BYTES = 5L * 1024L * 1024L // 5MB limit to prevent OOM (BUG-024)
         private const val MAX_FILES = 50
         private const val MAX_DEPTH = 8
         private const val MAX_VISITED = 500

@@ -4,6 +4,8 @@ import android.content.Intent
 import com.agentdesk.core.persistence.dao.KnowledgeDao
 import com.agentdesk.core.persistence.entity.ExtractedEntityEntity
 import com.agentdesk.core.persistence.entity.SharedItemEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,7 +20,7 @@ class SharedItemHandler @Inject constructor(
     private val knowledgeDao: KnowledgeDao,
     private val entityExtractor: EntityExtractor
 ) {
-    suspend fun handle(intent: Intent) {
+    suspend fun handle(intent: Intent) = withContext(Dispatchers.IO) {
         val mimeType = intent.type ?: "text/plain"
         val rawText: String? = intent.getStringExtra(Intent.EXTRA_TEXT)
         @Suppress("DEPRECATION")
