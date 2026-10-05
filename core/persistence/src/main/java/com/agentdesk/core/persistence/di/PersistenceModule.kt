@@ -23,7 +23,7 @@ object PersistenceModule {
             AgentDeskDatabase::class.java,
             "agentdesk.db"
         )
-            .fallbackToDestructiveMigration()
+            .addMigrations(*com.agentdesk.core.persistence.db.Migrations.ALL_MIGRATIONS)
             .build()
     }
 

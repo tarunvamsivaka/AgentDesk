@@ -270,7 +270,11 @@ data class ConfirmationRecordEntity(
 
 @Entity(
     tableName = "audit_event",
-    indices = [Index(value = ["occurred_at"]), Index(value = ["event_type"])]
+    indices = [
+        Index(value = ["occurred_at"]),
+        Index(value = ["event_type"]),
+        Index(value = ["sequence_number"])
+    ]
 )
 data class AuditEventEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -282,7 +286,11 @@ data class AuditEventEntity(
     // Sensitive details are never stored in plaintext
     @ColumnInfo(name = "redacted_details") val redactedDetails: String = "",
     @ColumnInfo(name = "risk_level") val riskLevel: RiskLevel = RiskLevel.NONE,
-    @ColumnInfo(name = "occurred_at") val occurredAt: Long = System.currentTimeMillis()
+    @ColumnInfo(name = "occurred_at") val occurredAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "sequence_number") val sequenceNumber: Long = 0L,
+    @ColumnInfo(name = "action_hash") val actionHash: String = "",
+    @ColumnInfo(name = "prev_digest") val prevDigest: String = "",
+    @ColumnInfo(name = "receipt_digest") val receiptDigest: String = ""
 )
 
 // ────────────────────────────────────────────────────────────────────────────

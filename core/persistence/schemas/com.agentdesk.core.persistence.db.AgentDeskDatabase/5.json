@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 5,
-    "identityHash": "6f9ea6b2440228d3f3ebc6f0f09c6861",
+    "identityHash": "cde37f59459d655f46ba82cbc7b7a365",
     "entities": [
       {
         "tableName": "user_profile",
@@ -995,7 +995,7 @@
       },
       {
         "tableName": "audit_event",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `event_type` TEXT NOT NULL, `actor` TEXT NOT NULL, `target_type` TEXT NOT NULL, `target_id` TEXT NOT NULL, `summary` TEXT NOT NULL, `redacted_details` TEXT NOT NULL, `risk_level` TEXT NOT NULL, `occurred_at` INTEGER NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `event_type` TEXT NOT NULL, `actor` TEXT NOT NULL, `target_type` TEXT NOT NULL, `target_id` TEXT NOT NULL, `summary` TEXT NOT NULL, `redacted_details` TEXT NOT NULL, `risk_level` TEXT NOT NULL, `occurred_at` INTEGER NOT NULL, `sequence_number` INTEGER NOT NULL, `action_hash` TEXT NOT NULL, `prev_digest` TEXT NOT NULL, `receipt_digest` TEXT NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -1050,6 +1050,30 @@
             "columnName": "occurred_at",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "sequenceNumber",
+            "columnName": "sequence_number",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actionHash",
+            "columnName": "action_hash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prevDigest",
+            "columnName": "prev_digest",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receiptDigest",
+            "columnName": "receipt_digest",
+            "affinity": "TEXT",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -1076,6 +1100,15 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_audit_event_event_type` ON `${TABLE_NAME}` (`event_type`)"
+          },
+          {
+            "name": "index_audit_event_sequence_number",
+            "unique": false,
+            "columnNames": [
+              "sequence_number"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_audit_event_sequence_number` ON `${TABLE_NAME}` (`sequence_number`)"
           }
         ],
         "foreignKeys": []
@@ -1764,7 +1797,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6f9ea6b2440228d3f3ebc6f0f09c6861')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'cde37f59459d655f46ba82cbc7b7a365')"
     ]
   }
 }

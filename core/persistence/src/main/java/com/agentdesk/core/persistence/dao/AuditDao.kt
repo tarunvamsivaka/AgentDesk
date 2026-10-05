@@ -19,6 +19,15 @@ interface AuditDao {
     @Query("DELETE FROM audit_event WHERE occurred_at < :beforeEpoch")
     suspend fun deleteOlderThan(beforeEpoch: Long)
 
+    @Query("SELECT * FROM audit_event ORDER BY sequence_number DESC, id DESC LIMIT 1")
+    suspend fun getLatestEvent(): AuditEventEntity?
+
+    @Query("SELECT * FROM audit_event WHERE sequence_number BETWEEN :startSeq AND :endSeq ORDER BY sequence_number ASC")
+    suspend fun getEventsBySequenceRange(startSeq: Long, endSeq: Long): List<AuditEventEntity>
+
+    @Query("SELECT COUNT(*) FROM audit_event")
+    suspend fun getEventCount(): Long
+
     @Query("DELETE FROM audit_event")
     suspend fun deleteAll()
 }
