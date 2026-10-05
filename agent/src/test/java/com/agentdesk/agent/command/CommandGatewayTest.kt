@@ -58,6 +58,10 @@ private class FakeAuditDao : AuditDao {
         return events.size.toLong()
     }
     override suspend fun deleteOlderThan(beforeEpoch: Long) {}
+    override suspend fun getLatestEvent(): AuditEventEntity? = events.lastOrNull()
+    override suspend fun getEventsBySequenceRange(startSeq: Long, endSeq: Long): List<AuditEventEntity> =
+        events.filter { it.sequenceNumber in startSeq..endSeq }
+    override suspend fun getEventCount(): Long = events.size.toLong()
     override suspend fun deleteAll() {
         events.clear()
     }

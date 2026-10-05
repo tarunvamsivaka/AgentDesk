@@ -1,5 +1,9 @@
 package com.agentdesk.feature.settings
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +20,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.agentdesk.core.settings.ConsentKeys
 
@@ -46,6 +55,18 @@ fun SettingsScreen(
 ) {
     val appLockEnabled by viewModel.appLockEnabled.collectAsState()
     val consents by viewModel.consents.collectAsState(initial = emptyList())
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        viewModel.setConsent(ConsentKeys.NOTIFICATIONS, isGranted)
+    }
+
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        viewModel.setConsent(ConsentKeys.CONTACTS_ACCESS, isGranted)
+    }
 
     var showPinDialog by rememberSaveable { mutableStateOf(false) }
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
@@ -122,7 +143,25 @@ fun SettingsScreen(
                         }
                         Switch(
                             checked = granted,
-                            onCheckedChange = { checked -> viewModel.setConsent(key, checked) }
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    when (key) {
+                                        ConsentKeys.NOTIFICATIONS -> {
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                            } else {
+                                                viewModel.setConsent(key, true)
+                                            }
+                                        }
+                                        ConsentKeys.CONTACTS_ACCESS -> {
+                                            contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                                        }
+                                        else -> viewModel.setConsent(key, true)
+                                    }
+                                } else {
+                                    viewModel.setConsent(key, false)
+                                }
+                            }
                         )
                     }
                 }
@@ -223,19 +262,28 @@ private fun PinDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var pin by remember { mutableStateOf("") }
+    var pin by rememberSaveable { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Set App Lock PIN") },
         text = {
             Column {
-                Text("Choose a PIN of at least 4 characters.")
+                Text("Choose a PIN between 4 and 8 digits.")
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = pin,
-                    onValueChange = { pin = it },
-                    placeholder = { Text("PIN") },
-                    singleLine = true
+                    onValueChange = { if (it.length <= 8 && it.all { c -> c.isDigit() }) pin = it },
+                    label = { Text("PIN") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.NumberPassword,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = { if (pin.length >= 4) onConfirm(pin) }
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         },

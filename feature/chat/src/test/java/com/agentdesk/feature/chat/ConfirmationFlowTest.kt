@@ -54,6 +54,9 @@ class ConfirmationFlowTest {
         override fun observeByType(eventType: String): Flow<List<AuditEventEntity>> = emptyFlow()
         override suspend fun insert(event: AuditEventEntity): Long = 1L
         override suspend fun deleteOlderThan(beforeEpoch: Long) {}
+        override suspend fun getLatestEvent(): AuditEventEntity? = null
+        override suspend fun getEventsBySequenceRange(startSeq: Long, endSeq: Long): List<AuditEventEntity> = emptyList()
+        override suspend fun getEventCount(): Long = 0L
         override suspend fun deleteAll() {}
     }
 

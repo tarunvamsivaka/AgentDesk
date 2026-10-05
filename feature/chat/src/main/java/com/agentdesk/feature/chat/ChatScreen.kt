@@ -55,7 +55,11 @@ fun ChatScreen(
         )
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding()
+    ) {
 
         // Message list
         LazyColumn(

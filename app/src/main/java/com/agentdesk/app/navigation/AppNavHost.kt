@@ -45,7 +45,9 @@ private val bottomNavItems = listOf(
 )
 
 @Composable
-fun AppNavHost() {
+fun AppNavHost(
+    startDestination: String = Routes.ONBOARDING
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -80,7 +82,7 @@ fun AppNavHost() {
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Routes.ONBOARDING,
+            startDestination = startDestination,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Routes.ONBOARDING) {

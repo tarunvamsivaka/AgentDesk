@@ -9,17 +9,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.StickyNote2
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.StickyNote2
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,7 +87,7 @@ fun LibraryScreen(
                     Text("Import Document")
                 }
                 Text(
-                    text = "Select a folder of .txt or .md files.\nIndexing happens privately on-device.",
+                    text = "Select a folder of .txt, .md, or .docx files.\nIndexing happens privately on-device.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                     textAlign = TextAlign.Center
@@ -97,7 +98,7 @@ fun LibraryScreen(
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Default.StickyNote2,
+                    imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.StickyNote2,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.primary
@@ -127,7 +128,7 @@ fun LibraryScreen(
 
 @Composable
 private fun NoteRow(note: NoteUi) {
-    var expanded by remember(note.id) { mutableStateOf(false) }
+    var expanded by rememberSaveable(note.id) { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
