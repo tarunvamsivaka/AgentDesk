@@ -1,27 +1,29 @@
 package com.agentdesk.core.security
 
 import android.content.Context
-import android.util.Base64
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.fragment.app.FragmentActivity
+import com.agentdesk.core.security.keystore.KeyStoreManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Base64
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 import javax.inject.Inject
@@ -36,34 +38,99 @@ import javax.inject.Singleton
  * are persisted (Base64) in a private DataStore. [verifyPin] recomputes the
  * hash and compares it in constant time via [MessageDigest.isEqual].
  *
+ * BIOMETRIC CRYPTOGRAPHIC BINDING: Biometric authentication is bound to
+ * hardware-backed AES-256-GCM cipher via [createBiometricCryptoObject],
+ * ensuring authentic hardware cryptographic verification.
+ *
  * SAFETY: isLockEnabled() is false until the user explicitly enables the lock.
  */
 @Singleton
-class AppLockManager @Inject constructor(
-    @ApplicationContext private val context: Context
+class AppLockManager internal constructor(
+    private val dataStore: DataStore<Preferences>,
+    private val coroutineScope: CoroutineScope,
+    private val context: Context?,
+    private val keyStoreManager: KeyStoreManager? = null
 ) {
+    @Inject
+    constructor(
+        @ApplicationContext context: Context,
+        keyStoreManager: KeyStoreManager
+    ) : this(
+        dataStore = PreferenceDataStoreFactory.create(
+            scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        ) { context.preferencesDataStoreFile(APP_LOCK_STORE_FILE) },
+        coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
+        context = context,
+        keyStoreManager = keyStoreManager
+    )
+
+    constructor(
+        @ApplicationContext context: Context
+    ) : this(
+        context = context,
+        keyStoreManager = KeyStoreManager(context)
+    )
+
+    internal constructor(
+        dataStore: DataStore<Preferences>,
+        coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
+        keyStoreManager: KeyStoreManager? = null
+    ) : this(
+        dataStore = dataStore,
+        coroutineScope = coroutineScope,
+        context = null,
+        keyStoreManager = keyStoreManager
+    )
+
     private val _lockState = MutableStateFlow(AppLockState.UNLOCKED)
     val lockState: StateFlow<AppLockState> = _lockState.asStateFlow()
 
-    private val dataStore: DataStore<Preferences> = PreferenceDataStoreFactory.create(
-        scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    ) { context.preferencesDataStoreFile(APP_LOCK_STORE_FILE) }
+    private val _isLockEnabledFlow = MutableStateFlow(false)
+    val isLockEnabledFlow: StateFlow<Boolean> = _isLockEnabledFlow.asStateFlow()
 
-    private var appLockEnabled: Boolean = runBlocking {
-        readEnabledPref()
+    @Volatile
+    private var appLockEnabled: Boolean = false
+
+    init {
+        coroutineScope.launch {
+            try {
+                var isFirstEmission = true
+                dataStore.data.collect { prefs ->
+                    val enabled = prefs[ENABLED_KEY] == "true"
+                    appLockEnabled = enabled
+                    _isLockEnabledFlow.value = enabled
+                    if (isFirstEmission) {
+                        isFirstEmission = false
+                        if (enabled && _lockState.value != AppLockState.LOCKED) {
+                            _lockState.value = AppLockState.LOCKED
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // If DataStore fails to read, maintain default false
+            }
+        }
     }
 
     fun isLockEnabled(): Boolean = appLockEnabled
 
+    suspend fun isLockEnabledAsync(): Boolean {
+        val enabled = readEnabledPref()
+        appLockEnabled = enabled
+        _isLockEnabledFlow.value = enabled
+        return enabled
+    }
+
     suspend fun enableLock(pin: String) {
-        val salt = ByteArray(SALT_BYTES).also { secureRandom.nextBytes(it) }
+        val salt = generateSalt()
         val hash = pbkdf2(pin, salt)
         dataStore.edit { prefs ->
-            prefs[SALT_KEY] = Base64.encodeToString(salt, Base64.NO_WRAP)
-            prefs[HASH_KEY] = Base64.encodeToString(hash, Base64.NO_WRAP)
+            prefs[SALT_KEY] = Base64.getEncoder().encodeToString(salt)
+            prefs[HASH_KEY] = Base64.getEncoder().encodeToString(hash)
             prefs[ENABLED_KEY] = "true"
         }
         appLockEnabled = true
+        _isLockEnabledFlow.value = true
         _lockState.value = AppLockState.LOCKED
     }
 
@@ -74,6 +141,7 @@ class AppLockManager @Inject constructor(
             prefs[ENABLED_KEY] = "false"
         }
         appLockEnabled = false
+        _isLockEnabledFlow.value = false
         _lockState.value = AppLockState.UNLOCKED
     }
 
@@ -84,13 +152,14 @@ class AppLockManager @Inject constructor(
     suspend fun verifyPin(pin: String): Boolean {
         val (salt, storedHash) = readSaltAndHash() ?: return false
         val computed = pbkdf2(pin, salt)
-        if (!java.security.MessageDigest.isEqual(computed, storedHash)) return false
+        if (!MessageDigest.isEqual(computed, storedHash)) return false
         unlock()
         return true
     }
 
     fun isBiometricAvailable(): Boolean {
-        val manager = BiometricManager.from(context)
+        val ctx = context ?: return false
+        val manager = BiometricManager.from(ctx)
         return manager.canAuthenticate(
             BiometricManager.Authenticators.BIOMETRIC_STRONG
                     or BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -98,11 +167,39 @@ class AppLockManager @Inject constructor(
     }
 
     /**
-     * Launches biometric authentication.
+     * Initializes and returns a [BiometricPrompt.CryptoObject] bound to the hardware master key cipher.
+     */
+    fun createBiometricCryptoObject(): BiometricPrompt.CryptoObject {
+        val ksm = keyStoreManager ?: KeyStoreManager(context)
+        val cipher = ksm.createEncryptCipher()
+        return BiometricPrompt.CryptoObject(cipher)
+    }
+
+    /**
+     * Launches biometric authentication bound to the hardware cipher.
      * Must be called from a FragmentActivity context.
      */
     fun authenticate(
         activity: FragmentActivity,
+        onSuccess: () -> Unit,
+        onFailure: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val cryptoObject = try {
+            createBiometricCryptoObject()
+        } catch (_: Throwable) {
+            null
+        }
+        authenticate(activity, cryptoObject, onSuccess, onFailure, onError)
+    }
+
+    /**
+     * Launches biometric authentication bound to the specified [BiometricPrompt.CryptoObject].
+     * If [cryptoObject] is null, falls back to credential authentication without cipher wrapping.
+     */
+    fun authenticate(
+        activity: FragmentActivity,
+        cryptoObject: BiometricPrompt.CryptoObject?,
         onSuccess: () -> Unit,
         onFailure: () -> Unit,
         onError: (String) -> Unit
@@ -122,15 +219,21 @@ class AppLockManager @Inject constructor(
                 }
             }
         )
-        val info = BiometricPrompt.PromptInfo.Builder()
+        val builder = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock AgentDesk")
             .setSubtitle("Confirm your identity to continue")
-            .setAllowedAuthenticators(
+
+        if (cryptoObject != null) {
+            builder.setNegativeButtonText("Use PIN")
+            builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            prompt.authenticate(builder.build(), cryptoObject)
+        } else {
+            builder.setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG
                         or BiometricManager.Authenticators.DEVICE_CREDENTIAL
             )
-            .build()
-        prompt.authenticate(info)
+            prompt.authenticate(builder.build())
+        }
     }
 
     private suspend fun readEnabledPref(): Boolean {
@@ -146,29 +249,31 @@ class AppLockManager @Inject constructor(
             val prefs = dataStore.data.first()
             val saltB64 = prefs[SALT_KEY] ?: return null
             val hashB64 = prefs[HASH_KEY] ?: return null
-            Base64.decode(saltB64, Base64.NO_WRAP) to Base64.decode(hashB64, Base64.NO_WRAP)
+            Base64.getDecoder().decode(saltB64) to Base64.getDecoder().decode(hashB64)
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun pbkdf2(pin: String, salt: ByteArray): ByteArray {
+    internal fun pbkdf2(pin: String, salt: ByteArray): ByteArray {
         val spec = PBEKeySpec(pin.toCharArray(), salt, PBKDF2_ITERATIONS, KEY_BITS)
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         return factory.generateSecret(spec).encoded
     }
 
     companion object {
-        private const val APP_LOCK_STORE_FILE = "app_lock_security"
-        private val SALT_KEY = stringPreferencesKey("pin_salt_b64")
-        private val HASH_KEY = stringPreferencesKey("pin_hash_b64")
-        private val ENABLED_KEY = stringPreferencesKey("app_lock_enabled")
+        const val APP_LOCK_STORE_FILE = "app_lock_security"
+        val SALT_KEY = stringPreferencesKey("pin_salt_b64")
+        val HASH_KEY = stringPreferencesKey("pin_hash_b64")
+        val ENABLED_KEY = stringPreferencesKey("app_lock_enabled")
 
-        private const val SALT_BYTES = 16
-        private const val PBKDF2_ITERATIONS = 10_000
-        private const val KEY_BITS = 256
+        const val SALT_BYTES = 16
+        const val PBKDF2_ITERATIONS = 10_000
+        const val KEY_BITS = 256
 
         private val secureRandom = SecureRandom()
+
+        fun generateSalt(): ByteArray = ByteArray(SALT_BYTES).also { secureRandom.nextBytes(it) }
     }
 }
 

@@ -21,11 +21,11 @@ class Redactor @Inject constructor() {
 
     fun redact(input: String): String {
         var result = input
-        result = PHONE_PATTERN.replace(result, "[PHONE]")
-        result = EMAIL_PATTERN.replace(result, "[EMAIL]")
         result = URL_WITH_CREDS.replace(result, "[URL+CREDS]")
-        result = CARD_PATTERN.replace(result, "[CARD]")
         result = TOKEN_PATTERN.replace(result, "[TOKEN]")
+        result = CARD_PATTERN.replace(result, "[CARD]")
+        result = EMAIL_PATTERN.replace(result, "[EMAIL]")
+        result = PHONE_PATTERN.replace(result, "[PHONE]")
         return result
     }
 
