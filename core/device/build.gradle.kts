@@ -25,6 +25,7 @@ dependencies {
     implementation(libs.android.core.ktx)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
 }

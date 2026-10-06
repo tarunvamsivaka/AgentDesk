@@ -55,6 +55,37 @@ open class DeviceProfiler @Inject constructor(
         return powerManager.currentThermalStatus
     }
 
+    /**
+     * Cold Flow emitting reactive updates of thermal status.
+     */
+    open fun observeThermalStatus(): kotlinx.coroutines.flow.Flow<Int> = kotlinx.coroutines.flow.flow {
+        while (true) {
+            emit(getThermalStatus())
+            kotlinx.coroutines.delay(2000)
+        }
+    }
+
+    /**
+     * Cold Flow emitting reactive updates of battery level and charging state.
+     */
+    open fun observeBatteryState(): kotlinx.coroutines.flow.Flow<Pair<Int, Boolean>> = kotlinx.coroutines.flow.flow {
+        while (true) {
+            val intent = try {
+                context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+            } catch (_: Exception) {
+                null
+            }
+            val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+            val percent = if (level >= 0 && scale > 0) (level * 100) / scale else 0
+            val status = intent?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val isCharging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                    status == android.os.BatteryManager.BATTERY_STATUS_FULL
+            emit(Pair(percent, isCharging))
+            kotlinx.coroutines.delay(5000)
+        }
+    }
+
     open fun classifyTier(): DeviceTier {
         val mem = memoryInfo()
         val availRam = mem.availMem / (1024 * 1024)
