@@ -4,6 +4,7 @@ import android.content.Intent
 import com.agentdesk.core.common.model.IndexStatus
 import com.agentdesk.core.persistence.dao.KnowledgeDao
 import com.agentdesk.core.persistence.entity.DocumentEntity
+import com.agentdesk.core.persistence.entity.EmbeddingVectorEntity
 import com.agentdesk.core.persistence.entity.ExtractedEntityEntity
 import com.agentdesk.core.persistence.entity.IndexJobEntity
 import com.agentdesk.core.persistence.entity.KnowledgeSourceEntity
@@ -36,6 +37,11 @@ private class FakeKnowledgeDao : KnowledgeDao {
     override suspend fun insertIndexJob(job: IndexJobEntity): Long = 1L
     override suspend fun updateIndexJob(job: IndexJobEntity) {}
     override suspend fun latestJobForSource(sourceId: Long): IndexJobEntity? = null
+    override suspend fun insertEmbedding(embedding: EmbeddingVectorEntity): Long = 1L
+    override suspend fun insertEmbeddings(embeddings: List<EmbeddingVectorEntity>) {}
+    override suspend fun findEmbeddingForChunk(chunkId: Long): EmbeddingVectorEntity? = null
+    override suspend fun getAllEmbeddingsWithBlobs(): List<EmbeddingVectorEntity> = emptyList()
+    override suspend fun findChunksByIds(chunkIds: List<Long>): List<TextChunkEntity> = emptyList()
 
     override suspend fun insertSharedItem(item: SharedItemEntity): Long {
         sharedItems.add(item)

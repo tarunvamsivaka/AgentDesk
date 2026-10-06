@@ -1,11 +1,20 @@
 package com.agentdesk.knowledge.di
 
+import com.agentdesk.knowledge.vector.EmbeddingGenerator
+import com.agentdesk.knowledge.vector.HashEmbeddingGenerator
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
 
-// Knowledge module dependencies injected via constructor injection.
-// Reserved for future @Provides if custom factory or binding is needed.
 @Module
 @InstallIn(SingletonComponent::class)
-object KnowledgeModule
+object KnowledgeModule {
+
+    @Provides
+    @Singleton
+    fun provideEmbeddingGenerator(): EmbeddingGenerator {
+        return HashEmbeddingGenerator()
+    }
+}

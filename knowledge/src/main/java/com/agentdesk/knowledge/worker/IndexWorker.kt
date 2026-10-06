@@ -16,6 +16,10 @@ import com.agentdesk.core.persistence.dao.KnowledgeDao
 import com.agentdesk.core.persistence.entity.DocumentEntity
 import com.agentdesk.core.persistence.entity.KnowledgeSourceEntity
 import com.agentdesk.core.persistence.entity.TextChunkEntity
+import com.agentdesk.core.persistence.entity.EmbeddingVectorEntity
+import com.agentdesk.knowledge.chunking.SemanticWindowChunker
+import com.agentdesk.knowledge.vector.EmbeddingGenerator
+import com.agentdesk.knowledge.vector.FastVectorMath
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
@@ -25,19 +29,7 @@ import java.util.UUID
 
 /**
  * IndexWorker — imports a folder selected via the Storage Access Framework
- * (SAF) and indexes its supported text files into the local Room + FTS4 store.
- *
- * MVP scope:
- * - Walks the selected tree with [DocumentFile].
- * - Indexes only `.txt` and `.md` files (`.pdf` is skipped for now).
- * - Caps the number of files at [MAX_FILES] to bound work.
- * - Chunks each file into [CHUNK_SIZE]-character chunks, stored as
- *   [TextChunkEntity] rows. The FTS4 virtual table is content-synced, so
- *   inserting chunks automatically makes them searchable.
- * - Respects the storage floor by checking for [MIN_FREE_BYTES] free space
- *   before starting (resource governor equivalent for MVP).
- *
- * Privacy: every byte stays on-device; nothing is uploaded.
+ * (SAF) and indexes its supported text files into the local Room + FTS4 store and vector embeddings.
  */
 @HiltWorker
 class IndexWorker @AssistedInject constructor(
@@ -45,8 +37,12 @@ class IndexWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val agentDeskDatabase: com.agentdesk.core.persistence.db.AgentDeskDatabase,
     private val knowledgeDao: KnowledgeDao,
-    private val ftsSearchDao: FtsSearchDao
+    private val ftsSearchDao: FtsSearchDao,
+    private val embeddingGenerator: EmbeddingGenerator
 ) : CoroutineWorker(appContext, params) {
+
+    private val chunker = SemanticWindowChunker()
+
 
     override suspend fun doWork(): Result {
         val treeUriString = inputData.getString(KEY_TREE_URI) ?: return Result.failure()
@@ -101,6 +97,7 @@ class IndexWorker @AssistedInject constructor(
             }
 
             // Atomic per file: document + chunks + FTS sync either fully apply or not at all
+            // Atomic per file: document + chunks + embeddings + FTS sync either fully apply or not at all
             agentDeskDatabase.withTransaction {
                 val documentId = knowledgeDao.insertDocument(
                     DocumentEntity(
@@ -110,17 +107,39 @@ class IndexWorker @AssistedInject constructor(
                     )
                 )
 
-                val chunks = text.chunked(CHUNK_SIZE)
-                knowledgeDao.insertChunks(
-                    chunks.mapIndexed { index, content ->
-                        TextChunkEntity(
-                            documentId = documentId,
-                            chunkIndex = index,
-                            content = content,
-                            charOffset = index * CHUNK_SIZE
-                        )
-                    }
+                val chunks = chunker.chunk(
+                    title = file.name ?: "Untitled",
+                    fullText = text
                 )
+
+                val chunkEntities = chunks.map { c ->
+                    TextChunkEntity(
+                        documentId = documentId,
+                        chunkIndex = c.index,
+                        content = c.content,
+                        charOffset = c.charOffset,
+                        pageNumber = c.pageNumber
+                    )
+                }
+                knowledgeDao.insertChunks(chunkEntities)
+
+                // Fetch inserted chunks to obtain their auto-generated primary key IDs
+                val savedChunks = knowledgeDao.chunksForDocument(documentId)
+                val embeddings = mutableListOf<EmbeddingVectorEntity>()
+                for (sc in savedChunks) {
+                    val vec = embeddingGenerator.generateEmbedding(sc.content)
+                    val blob = FastVectorMath.toByteArray(vec)
+                    embeddings.add(
+                        EmbeddingVectorEntity(
+                            chunkId = sc.id,
+                            vectorBlob = blob,
+                            modelVersion = embeddingGenerator.modelVersion
+                        )
+                    )
+                }
+                if (embeddings.isNotEmpty()) {
+                    knowledgeDao.insertEmbeddings(embeddings)
+                }
             }
 
             if (isStopped) {

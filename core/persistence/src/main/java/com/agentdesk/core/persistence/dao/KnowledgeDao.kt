@@ -54,6 +54,23 @@ interface KnowledgeDao {
     @Query("SELECT * FROM index_job WHERE source_id = :sourceId ORDER BY started_at DESC LIMIT 1")
     suspend fun latestJobForSource(sourceId: Long): IndexJobEntity?
 
+    // Embeddings
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEmbedding(embedding: EmbeddingVectorEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEmbeddings(embeddings: List<EmbeddingVectorEntity>)
+
+    @Query("SELECT * FROM embedding_vector WHERE chunk_id = :chunkId LIMIT 1")
+    suspend fun findEmbeddingForChunk(chunkId: Long): EmbeddingVectorEntity?
+
+    @Query("SELECT * FROM embedding_vector WHERE vector_blob IS NOT NULL")
+    suspend fun getAllEmbeddingsWithBlobs(): List<EmbeddingVectorEntity>
+
+    @Query("SELECT * FROM text_chunk WHERE id IN (:chunkIds)")
+    suspend fun findChunksByIds(chunkIds: List<Long>): List<TextChunkEntity>
+
+
     // ─── Share Bridge ──────────────────────────────────────────────────────────
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
