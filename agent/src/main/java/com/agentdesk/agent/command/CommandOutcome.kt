@@ -16,4 +16,8 @@ sealed class CommandOutcome {
 
     /** Input did not match any known intent. */
     data class Unknown(val rawInput: String) : CommandOutcome()
+
+    /** Tier 3 fallback: ambiguous, out-of-domain, or throttled query offering guided chips. */
+    data class Clarification(val rawInput: String, val chips: List<String>) : CommandOutcome()
 }
+

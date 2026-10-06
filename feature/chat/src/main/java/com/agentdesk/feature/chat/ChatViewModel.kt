@@ -270,6 +270,18 @@ class ChatViewModel(
                 )
                 conversationDao.touchThread(threadId)
             }
+            is CommandOutcome.Clarification -> {
+                val chipText = outcome.chips.joinToString(" • ")
+                conversationDao.insertMessage(
+                    ConversationMessageEntity(
+                        threadId = threadId,
+                        role = "assistant",
+                        content = "I'm not quite sure how to handle \"${outcome.rawInput}\". You can try:\n$chipText"
+                    )
+                )
+                conversationDao.touchThread(threadId)
+            }
         }
     }
 }
+

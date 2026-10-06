@@ -29,4 +29,9 @@ object AgentModule {
     @Provides
     @IoDispatcher
     fun provideIoDispatcher(): CoroutineDispatcher = Dispatchers.IO
+
+    @Provides
+    @javax.inject.Singleton
+    fun provideOnDeviceLlmManager(): com.agentdesk.agent.intent.OnDeviceLlmManager =
+        com.agentdesk.agent.intent.DefaultOnDeviceLlmManager()
 }

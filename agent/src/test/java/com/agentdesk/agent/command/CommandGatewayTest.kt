@@ -219,9 +219,10 @@ class CommandGatewayTest {
     fun `unknown input is never executed`() = runBlocking {
         val outcome = gateway.submitText("zzzblahblah123nonsense")
 
-        assertTrue(outcome is CommandOutcome.Unknown)
+        assertTrue(outcome is CommandOutcome.Clarification || outcome is CommandOutcome.Unknown)
         assertTrue(toolRunner.invoked.isEmpty())
         assertEquals("unknown", commandDao.statusUpdates.single().intentName)
         assertEquals(CommandGateway.STATUS_UNKNOWN, commandDao.statusUpdates.single().status)
     }
 }
+

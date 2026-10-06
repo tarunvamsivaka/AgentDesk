@@ -38,13 +38,15 @@ class CommandGateway @Inject constructor(
     private val commandDao: CommandDao,
     private val auditDao: AuditDao,
     private val redactor: Redactor,
-    private val dispatcher: CoroutineDispatcher
+    private val dispatcher: CoroutineDispatcher,
+    private val llmManager: com.agentdesk.agent.intent.OnDeviceLlmManager = com.agentdesk.agent.intent.DefaultOnDeviceLlmManager()
 ) {
 
     suspend fun submitText(
         rawInput: String,
         source: CommandSource = CommandSource.USER_CHAT,
-        threadId: Long? = null
+        threadId: Long? = null,
+        thermalThrottled: Boolean = false
     ): CommandOutcome = withContext(dispatcher) {
         val startedAt = System.currentTimeMillis()
         val normalized = rawInput.trim().lowercase()
@@ -59,30 +61,61 @@ class CommandGateway @Inject constructor(
             )
         )
 
-        // Step 2: Intent recognition
-        val ruleResult = ruleEngine.evaluate(normalized)
-        if (ruleResult == null || ruleResult.confidence < CONFIDENCE_THRESHOLD) {
+        if (normalized.isBlank()) {
             finish(commandId, "unknown", STATUS_UNKNOWN, startedAt)
             return@withContext CommandOutcome.Unknown(rawInput)
+        }
+
+        // Step 2: 4-Tier Intent Recognition Hierarchy
+
+        // Tier 0: Regex RuleEngine (<5ms)
+        var intentName = ""
+        var entities = emptyMap<String, String>()
+        var confidence = 0f
+
+        val ruleResult = ruleEngine.evaluate(normalized)
+        if (ruleResult != null && ruleResult.confidence >= CONFIDENCE_THRESHOLD) {
+            intentName = ruleResult.intentName
+            entities = ruleResult.entities
+            confidence = ruleResult.confidence
+        } else {
+            // Tier 1 & 2: On-device SLM classification (Gemini Nano / LiteRT)
+            val slmResult = llmManager.classifyIntent(normalized, thermalThrottled = thermalThrottled)
+            if (slmResult.intentName == "clarification") {
+                finish(commandId, "clarification", STATUS_UNKNOWN, startedAt)
+                return@withContext CommandOutcome.Clarification(rawInput, slmResult.clarificationChips)
+            } else if (slmResult.confidence >= CONFIDENCE_THRESHOLD) {
+                intentName = slmResult.intentName
+                entities = slmResult.entities
+                confidence = slmResult.confidence
+            } else {
+                // Tier 3: Unknown with fallback chips
+                finish(commandId, "unknown", STATUS_UNKNOWN, startedAt)
+                return@withContext CommandOutcome.Clarification(
+                    rawInput,
+                    slmResult.clarificationChips.ifEmpty { listOf("Search Library", "Set Alarm", "Create Note") }
+                )
+            }
         }
 
         val command = Command(
             rawInput = rawInput,
             normalizedInput = normalized,
-            intentName = ruleResult.intentName,
-            entities = ruleResult.entities,
-            confidence = ruleResult.confidence,
+            intentName = intentName,
+            entities = entities,
+            confidence = confidence,
             source = source
         )
+
 
         // Step 3: Policy check (PolicyEngine always wins)
         when (val policy = policyEngine.evaluate(command, commandId)) {
             is CommandResult.Rejected -> {
-                finish(commandId, ruleResult.intentName, STATUS_REJECTED, startedAt)
+                finish(commandId, intentName, STATUS_REJECTED, startedAt)
                 CommandOutcome.Rejected(policy.reason)
             }
             is CommandResult.NeedsConfirmation -> {
-                finish(commandId, ruleResult.intentName, STATUS_NEEDS_CONFIRMATION, startedAt)
+                finish(commandId, intentName, STATUS_NEEDS_CONFIRMATION, startedAt)
                 CommandOutcome.NeedsUserConfirmation(policy.command, policy.prompt)
             }
             is CommandResult.Accepted ->
