@@ -52,4 +52,5 @@ abstract class AgentDeskDatabase : RoomDatabase() {
     abstract fun policyDecisionDao(): PolicyDecisionDao
     abstract fun confirmationDao(): ConfirmationDao
     abstract fun noteDao(): NoteDao
+    abstract fun conversationDao(): ConversationDao
 }

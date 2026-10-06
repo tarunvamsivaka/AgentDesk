@@ -6,15 +6,25 @@ import com.agentdesk.agent.command.Command
 import com.agentdesk.agent.command.CommandGateway
 import com.agentdesk.agent.command.CommandOutcome
 import com.agentdesk.core.common.model.CommandSource
+import com.agentdesk.core.persistence.dao.AuditDao
 import com.agentdesk.core.persistence.dao.ConfirmationDao
+import com.agentdesk.core.persistence.dao.ConversationDao
+import com.agentdesk.core.persistence.entity.AuditEventEntity
 import com.agentdesk.core.persistence.entity.ConfirmationRecordEntity
+import com.agentdesk.core.persistence.entity.ConversationMessageEntity
+import com.agentdesk.core.persistence.entity.ConversationThreadEntity
+import com.agentdesk.core.security.Redactor
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 // ---------------------------------------------------------------------------
@@ -23,18 +33,17 @@ import javax.inject.Inject
 
 enum class MessageSender { USER, AGENT }
 
+/**
+ * UI representation of a dialogue message.
+ *
+ * [id] is backed directly by Room's monotonic SQLite autoincrement ID,
+ * ensuring unique, collision-free Compose LazyColumn keys across app restarts.
+ */
 data class ChatMessage(
-    val id: Long = ChatMessage.newId(),
+    val id: Long = 0L,
     val text: String,
     val sender: MessageSender
-) {
-    companion object {
-        // Monotonic counter — stable, collision-free LazyColumn keys
-        private val counter = AtomicLong(0)
-
-        fun newId(): Long = counter.incrementAndGet()
-    }
-}
+)
 
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
@@ -54,13 +63,55 @@ data class PendingConfirmation(
 // ---------------------------------------------------------------------------
 
 @HiltViewModel
-class ChatViewModel @Inject constructor(
+class ChatViewModel(
     private val commandGateway: CommandGateway,
-    private val confirmationDao: ConfirmationDao
+    private val confirmationDao: ConfirmationDao,
+    private val conversationDao: ConversationDao,
+    private val auditDao: AuditDao,
+    private val redactor: Redactor,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
+
+    @Inject
+    constructor(
+        commandGateway: CommandGateway,
+        confirmationDao: ConfirmationDao,
+        conversationDao: ConversationDao,
+        auditDao: AuditDao,
+        redactor: Redactor
+    ) : this(
+        commandGateway = commandGateway,
+        confirmationDao = confirmationDao,
+        conversationDao = conversationDao,
+        auditDao = auditDao,
+        redactor = redactor,
+        ioDispatcher = Dispatchers.IO
+    )
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    private val threadMutex = Mutex()
+    private var currentThreadId: Long = 0L
+
+    init {
+        viewModelScope.launch(ioDispatcher) {
+            val threadId = getOrCreateThreadId()
+            conversationDao.observeMessages(threadId).collect { entities ->
+                _uiState.update { state ->
+                    state.copy(
+                        messages = entities.map { entity ->
+                            ChatMessage(
+                                id = entity.id,
+                                text = entity.content,
+                                sender = if (entity.role == "user") MessageSender.USER else MessageSender.AGENT
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
 
     fun onInputChanged(text: String) {
         _uiState.update { it.copy(inputText = text) }
@@ -70,12 +121,24 @@ class ChatViewModel @Inject constructor(
         val text = _uiState.value.inputText.trim()
         if (text.isBlank() || _uiState.value.isProcessing) return
 
-        // Add user message immediately, then show loading state while executing
-        appendMessage(ChatMessage(text = text, sender = MessageSender.USER))
         _uiState.update { it.copy(inputText = "", isProcessing = true) }
 
-        viewModelScope.launch {
-            handleOutcome(commandGateway.submitText(text, CommandSource.USER_CHAT))
+        viewModelScope.launch(ioDispatcher) {
+            val cleanText = redactor.redact(text)
+            val threadId = getOrCreateThreadId()
+
+            // Persist user message to Room (Room Flow emits this back into _uiState.messages)
+            conversationDao.insertMessage(
+                ConversationMessageEntity(
+                    threadId = threadId,
+                    role = "user",
+                    content = cleanText
+                )
+            )
+            conversationDao.touchThread(threadId)
+
+            val outcome = commandGateway.submitText(cleanText, CommandSource.USER_CHAT, threadId = threadId)
+            handleOutcome(outcome, threadId)
             _uiState.update { it.copy(isProcessing = false) }
         }
     }
@@ -83,13 +146,22 @@ class ChatViewModel @Inject constructor(
     fun onConfirmAction() {
         val pending = _uiState.value.pendingConfirmation ?: return
         _uiState.update { it.copy(pendingConfirmation = null, isProcessing = true) }
-        viewModelScope.launch {
+        viewModelScope.launch(ioDispatcher) {
+            val threadId = getOrCreateThreadId()
             // Persist the user's approval (user_confirmed = true)
             confirmationDao.recordResponse(pending.confirmationId, confirmed = true)
-            val outcome = commandGateway.executeConfirmed(pending.command)
+            val outcome = commandGateway.executeConfirmed(pending.command, threadId = threadId)
             val message = (outcome as? CommandOutcome.Executed)?.message
                 ?: "Action could not be completed."
-            appendMessage(ChatMessage(text = message, sender = MessageSender.AGENT))
+
+            conversationDao.insertMessage(
+                ConversationMessageEntity(
+                    threadId = threadId,
+                    role = "assistant",
+                    content = message
+                )
+            )
+            conversationDao.touchThread(threadId)
             _uiState.update { it.copy(isProcessing = false) }
         }
     }
@@ -97,10 +169,38 @@ class ChatViewModel @Inject constructor(
     fun onDismissConfirmation() {
         val pending = _uiState.value.pendingConfirmation
         _uiState.update { it.copy(pendingConfirmation = null) }
-        appendMessage(ChatMessage(text = "Action cancelled.", sender = MessageSender.AGENT))
-        viewModelScope.launch {
-            // Persist the user's rejection (user_confirmed = false)
-            pending?.let { confirmationDao.recordResponse(it.confirmationId, confirmed = false) }
+        viewModelScope.launch(ioDispatcher) {
+            val threadId = getOrCreateThreadId()
+            pending?.let {
+                // Record user cancellation in confirmation DAO
+                confirmationDao.recordResponse(it.confirmationId, confirmed = false)
+                // Mandatory audit logging for user dismissal
+                auditDao.insert(
+                    AuditEventEntity(
+                        eventType = "USER_CANCELLED",
+                        actor = "USER",
+                        targetType = "INTENT",
+                        targetId = it.command.intentName,
+                        summary = "User dismissed confirmation for ${it.command.intentName}",
+                        riskLevel = it.command.riskLevel
+                    )
+                )
+            }
+            conversationDao.insertMessage(
+                ConversationMessageEntity(
+                    threadId = threadId,
+                    role = "assistant",
+                    content = "Action cancelled."
+                )
+            )
+            conversationDao.touchThread(threadId)
+        }
+    }
+
+    fun clearConversation() {
+        viewModelScope.launch(ioDispatcher) {
+            val threadId = getOrCreateThreadId()
+            conversationDao.clearThread(threadId)
         }
     }
 
@@ -108,12 +208,28 @@ class ChatViewModel @Inject constructor(
     // Internal helpers
     // ---------------------------------------------------------------------------
 
-    private suspend fun handleOutcome(outcome: CommandOutcome) {
+    private suspend fun getOrCreateThreadId(): Long = threadMutex.withLock {
+        if (currentThreadId != 0L) return@withLock currentThreadId
+        val existing = conversationDao.getLatestActiveThread()
+        val threadId = existing?.id ?: conversationDao.insertThread(
+            ConversationThreadEntity(title = "Default Conversation")
+        )
+        currentThreadId = threadId
+        threadId
+    }
+
+    private suspend fun handleOutcome(outcome: CommandOutcome, threadId: Long) {
         when (outcome) {
-            is CommandOutcome.Executed ->
-                appendMessage(
-                    ChatMessage(text = outcome.message, sender = MessageSender.AGENT)
+            is CommandOutcome.Executed -> {
+                conversationDao.insertMessage(
+                    ConversationMessageEntity(
+                        threadId = threadId,
+                        role = "assistant",
+                        content = outcome.message
+                    )
                 )
+                conversationDao.touchThread(threadId)
+            }
             is CommandOutcome.NeedsUserConfirmation -> {
                 // Persist the prompt (user_confirmed = null until the user responds)
                 val recordId = confirmationDao.insert(
@@ -134,21 +250,26 @@ class ChatViewModel @Inject constructor(
                     )
                 }
             }
-            is CommandOutcome.Rejected ->
-                appendMessage(
-                    ChatMessage(text = "🚫 ${outcome.reason}", sender = MessageSender.AGENT)
-                )
-            is CommandOutcome.Unknown ->
-                appendMessage(
-                    ChatMessage(
-                        text = "I didn't understand \"${outcome.rawInput}\". Try: \"Set alarm at 7am\", \"Open Maps\", \"Note down buy milk\".",
-                        sender = MessageSender.AGENT
+            is CommandOutcome.Rejected -> {
+                conversationDao.insertMessage(
+                    ConversationMessageEntity(
+                        threadId = threadId,
+                        role = "assistant",
+                        content = "🚫 ${outcome.reason}"
                     )
                 )
+                conversationDao.touchThread(threadId)
+            }
+            is CommandOutcome.Unknown -> {
+                conversationDao.insertMessage(
+                    ConversationMessageEntity(
+                        threadId = threadId,
+                        role = "assistant",
+                        content = "I didn't understand \"${outcome.rawInput}\". Try: \"Set alarm at 7am\", \"Open Maps\", \"Note down buy milk\"."
+                    )
+                )
+                conversationDao.touchThread(threadId)
+            }
         }
-    }
-
-    private fun appendMessage(message: ChatMessage) {
-        _uiState.update { it.copy(messages = it.messages + message) }
     }
 }

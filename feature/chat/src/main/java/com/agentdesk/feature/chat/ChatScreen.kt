@@ -40,18 +40,12 @@ fun ChatScreen(
         }
     }
 
-    // Confirmation dialog
+    // Confirmation dialog with structured parameter previews
     uiState.pendingConfirmation?.let { pending ->
-        AlertDialog(
-            onDismissRequest = { viewModel.onDismissConfirmation() },
-            title = { Text("Confirm Action") },
-            text = { Text(pending.prompt) },
-            confirmButton = {
-                Button(onClick = { viewModel.onConfirmAction() }) { Text("Yes, proceed") }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { viewModel.onDismissConfirmation() }) { Text("Cancel") }
-            }
+        ConfirmationDialog(
+            pending = pending,
+            onConfirm = { viewModel.onConfirmAction() },
+            onDismiss = { viewModel.onDismissConfirmation() }
         )
     }
 

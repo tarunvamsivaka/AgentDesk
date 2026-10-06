@@ -1,12 +1,18 @@
 package com.agentdesk.app.navigation
 
-import androidx.compose.foundation.layout.padding
+import androidx.activity.BackEventCompat
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -15,11 +21,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.agentdesk.app.ui.theme.accessibleFocusRing
+import com.agentdesk.app.ui.theme.accessibleTouchTarget
 import com.agentdesk.feature.chat.ChatScreen
 import com.agentdesk.feature.health.HealthScreen
 import com.agentdesk.feature.library.LibraryScreen
 import com.agentdesk.feature.onboarding.OnboardingScreen
 import com.agentdesk.feature.settings.SettingsScreen
+import kotlinx.coroutines.flow.Flow
+import kotlin.coroutines.cancellation.CancellationException
 
 /** Route constants for the NavHost. */
 object Routes {
@@ -31,13 +41,13 @@ object Routes {
 }
 
 /** Bottom nav destinations (shown after onboarding). */
-private data class BottomNavItem(
+data class BottomNavItem(
     val route: String,
     val label: String,
     val icon: androidx.compose.ui.graphics.vector.ImageVector
 )
 
-private val bottomNavItems = listOf(
+val bottomNavItems = listOf(
     BottomNavItem(Routes.CHAT, "Chat", Icons.AutoMirrored.Filled.Chat),
     BottomNavItem(Routes.LIBRARY, "Library", Icons.AutoMirrored.Filled.MenuBook),
     BottomNavItem(Routes.HEALTH, "Health", Icons.Default.Favorite),
@@ -54,36 +64,68 @@ fun AppNavHost(
 
     val showBottomBar = currentRoute != Routes.ONBOARDING
 
-    Scaffold(
-        bottomBar = {
+    // Predictive Back Navigation: Intercept back gesture when navigating backstack
+    PredictiveBackHandler(enabled = navController.previousBackStackEntry != null) { progress: Flow<BackEventCompat> ->
+        try {
+            progress.collect { _ ->
+                // Predictive back progress tracking without activity teardown
+            }
+            navController.popBackStack()
+        } catch (_: CancellationException) {
+            // Cancelled by user swipe gesture
+        }
+    }
+
+    val adaptiveInfo = currentWindowAdaptiveInfo()
+    val layoutType = if (!showBottomBar) {
+        NavigationSuiteType.None
+    } else {
+        NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(adaptiveInfo)
+    }
+
+    NavigationSuiteScaffold(
+        layoutType = layoutType,
+        navigationSuiteItems = {
             if (showBottomBar) {
-                NavigationBar {
-                    bottomNavItems.forEach { item ->
-                        val selected = navBackStackEntry?.destination?.hierarchy
-                            ?.any { it.route == item.route } == true
-                        NavigationBarItem(
-                            icon = { Icon(item.icon, contentDescription = item.label) },
-                            label = { Text(item.label) },
-                            selected = selected,
-                            onClick = {
-                                navController.navigate(item.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
+                bottomNavItems.forEach { item ->
+                    val selected = navBackStackEntry?.destination?.hierarchy
+                        ?.any { it.route == item.route } == true
+                    item(
+                        selected = selected,
+                        onClick = {
+                            navController.navigate(item.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
                                 }
+                                launchSingleTop = true
+                                restoreState = true
                             }
-                        )
-                    }
+                        },
+                        icon = {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = item.label
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = item.label,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        },
+                        modifier = Modifier
+                            .accessibleTouchTarget()
+                            .accessibleFocusRing()
+                    )
                 }
             }
-        }
-    ) { innerPadding ->
+        },
+        modifier = Modifier.fillMaxSize()
+    ) {
         NavHost(
             navController = navController,
             startDestination = startDestination,
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier.fillMaxSize()
         ) {
             composable(Routes.ONBOARDING) {
                 OnboardingScreen(

@@ -5,10 +5,8 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Unit tests for RuleEngine.
- *
- * Uses actual API: engine.evaluate(text): RuleResult?
- * Intent names from Intents object: SET_ALARM, SET_TIMER, NOTE_CREATE, APP_OPEN, SMS_DRAFT
+ * Unit tests for RuleEngine — verifies deterministic 11-tool intent classification
+ * and slot entity extraction across all supported device capabilities.
  */
 class RuleEngineTest {
 
@@ -86,6 +84,16 @@ class RuleEngineTest {
         assertEquals(Intents.NOTE_CREATE, result!!.intentName)
     }
 
+    // ─── Calendar Create ──────────────────────────────────────────────────────
+
+    @Test
+    fun `create calendar event matches calendar_create`() {
+        val result = engine.evaluate("schedule a meeting with alex")
+        assertNotNull(result)
+        assertEquals(Intents.CALENDAR_CREATE, result!!.intentName)
+        assertEquals("with alex", result.entities["title"])
+    }
+
     // ─── Open App ─────────────────────────────────────────────────────────────
 
     @Test
@@ -119,6 +127,8 @@ class RuleEngineTest {
         assertNotNull(result)
         assertEquals(Intents.SMS_DRAFT, result!!.intentName)
         assertTrue("Expected confidence >= 0.7", result.confidence >= 0.7f)
+        assertEquals("john", result.entities["contact"])
+        assertEquals("i am on my way", result.entities["body"])
     }
 
     @Test
@@ -128,12 +138,99 @@ class RuleEngineTest {
         assertEquals(Intents.SMS_DRAFT, result!!.intentName)
     }
 
+    // ─── Dial Number ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `call phrasing matches dial_number`() {
+        val result = engine.evaluate("call alice")
+        assertNotNull(result)
+        assertEquals(Intents.DIAL_NUMBER, result!!.intentName)
+        assertEquals("alice", result.entities["contact"])
+    }
+
+    // ─── Web Search ───────────────────────────────────────────────────────────
+
+    @Test
+    fun `search web for query extracts web_search intent and query entity`() {
+        val result = engine.evaluate("search the web for kotlin coroutines")
+        assertNotNull(result)
+        assertEquals(Intents.WEB_SEARCH, result!!.intentName)
+        assertEquals("kotlin coroutines", result.entities["query"])
+    }
+
+    @Test
+    fun `search online extracts web_search intent and query entity`() {
+        val result = engine.evaluate("search online for weather today")
+        assertNotNull(result)
+        assertEquals(Intents.WEB_SEARCH, result!!.intentName)
+        assertEquals("weather today", result.entities["query"])
+    }
+
+    @Test
+    fun `google query extracts web_search intent and query entity`() {
+        val result = engine.evaluate("google android compose documentation")
+        assertNotNull(result)
+        assertEquals(Intents.WEB_SEARCH, result!!.intentName)
+        assertEquals("android compose documentation", result.entities["query"])
+    }
+
+    // ─── Device Health ────────────────────────────────────────────────────────
+
+    @Test
+    fun `battery status matches device_health`() {
+        val result = engine.evaluate("check battery status")
+        assertNotNull(result)
+        assertEquals(Intents.DEVICE_HEALTH, result!!.intentName)
+    }
+
+    @Test
+    fun `device health matches device_health`() {
+        val result = engine.evaluate("device health")
+        assertNotNull(result)
+        assertEquals(Intents.DEVICE_HEALTH, result!!.intentName)
+    }
+
+    // ─── Library Search vs Web Search ─────────────────────────────────────────
+
+    @Test
+    fun `find document routes to library_search`() {
+        val result = engine.evaluate("find tax return 2025")
+        assertNotNull(result)
+        assertEquals(Intents.LIBRARY_SEARCH, result!!.intentName)
+        assertEquals("tax return 2025", result.entities["query"])
+    }
+
+    // ─── All 11 Tools Deterministic Resolution ───────────────────────────────
+
+    @Test
+    fun `all 11 core tool intents resolve deterministically with confidence ge 0_7`() {
+        val inputs = listOf(
+            "set alarm at 7:00 am" to Intents.SET_ALARM,
+            "timer for 10 minutes" to Intents.SET_TIMER,
+            "note down buy groceries" to Intents.NOTE_CREATE,
+            "schedule a meeting with team" to Intents.CALENDAR_CREATE,
+            "text alice saying running late" to Intents.SMS_DRAFT,
+            "search the web for rust language" to Intents.WEB_SEARCH,
+            "check battery level" to Intents.DEVICE_HEALTH,
+            "where is my passport" to Intents.LIBRARY_SEARCH,
+            "call 5551234" to Intents.DIAL_NUMBER,
+            "navigate to downtown" to Intents.NAVIGATE_MAP,
+            "open camera" to Intents.APP_OPEN
+        )
+
+        for ((input, expectedIntent) in inputs) {
+            val result = engine.evaluate(input)
+            assertNotNull("Failed to match input: $input", result)
+            assertEquals("Wrong intent for $input", expectedIntent, result!!.intentName)
+            assertTrue("Confidence too low for $input", result.confidence >= 0.7f)
+        }
+    }
+
     // ─── Unknown ──────────────────────────────────────────────────────────────
 
     @Test
     fun `unknown input returns null or very low confidence`() {
         val result = engine.evaluate("zzzblahblah123nonsense")
-        // Either null (no match) or confidence < 0.5
         assertTrue(result == null || result.confidence < 0.5f)
     }
 }

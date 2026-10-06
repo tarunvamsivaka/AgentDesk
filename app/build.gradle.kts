@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "com.agentdesk.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.agentdesk.app"
@@ -97,6 +97,10 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     implementation(libs.compose.icons.extended)
+    implementation(libs.compose.material3.adaptive.suite)
+    implementation(libs.compose.adaptive)
+    implementation(libs.compose.adaptive.layout)
+    implementation(libs.compose.adaptive.navigation)
 
     // Navigation
     implementation(libs.navigation.compose)

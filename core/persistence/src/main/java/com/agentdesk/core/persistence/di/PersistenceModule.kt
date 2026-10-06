@@ -59,4 +59,7 @@ object PersistenceModule {
 
     @Provides
     fun provideNoteDao(db: AgentDeskDatabase): NoteDao = db.noteDao()
+
+    @Provides
+    fun provideConversationDao(db: AgentDeskDatabase): ConversationDao = db.conversationDao()
 }

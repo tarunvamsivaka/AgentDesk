@@ -22,7 +22,13 @@ class RuleEngine @Inject constructor() {
         // Keyword fallback (partial match at 0.7)
         for ((intentName, keyword) in KEYWORD_FALLBACKS) {
             if (normalizedText.contains(keyword)) {
-                return RuleResult(intentName, emptyMap(), 0.7f)
+                val entities = if (intentName == Intents.WEB_SEARCH) {
+                    val query = normalizedText.substringAfter(keyword).trim().removePrefix("for").trim()
+                    if (query.isNotBlank()) mapOf("query" to query) else emptyMap()
+                } else {
+                    emptyMap()
+                }
+                return RuleResult(intentName, entities, 0.7f)
             }
         }
         return null
@@ -63,6 +69,16 @@ class RuleEngine @Inject constructor() {
                 intentName = Intents.SMS_DRAFT,
                 pattern = Regex("""(?:text|message|sms)\s+(.+?)\s+(?:saying|that|:)\s+(.+)"""),
                 extractor = { m -> mapOf("contact" to m.groupValues[1].trim(), "body" to m.groupValues[2].trim()) }
+            ),
+            Rule(
+                intentName = Intents.WEB_SEARCH,
+                pattern = Regex("""(?:search\s+(?:the\s+)?(?:web|online|internet)\s+(?:for\s+)?|google\s+)(.+)"""),
+                extractor = { m -> mapOf("query" to m.groupValues[1].trim()) }
+            ),
+            Rule(
+                intentName = Intents.DEVICE_HEALTH,
+                pattern = Regex("""(?:check\s+)?(?:device\s+health|battery\s+(?:status|level|pct)|storage\s+(?:status|space|free))"""),
+                extractor = { emptyMap() }
             ),
             Rule(
                 intentName = Intents.LIBRARY_SEARCH,

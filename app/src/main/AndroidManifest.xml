@@ -74,6 +74,7 @@
         android:label="AgentDesk"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.AgentDesk">
 
         <!-- Main activity -->

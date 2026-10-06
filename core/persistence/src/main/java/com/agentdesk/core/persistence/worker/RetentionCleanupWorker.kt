@@ -7,6 +7,7 @@ import androidx.room.withTransaction
 import androidx.work.*
 import com.agentdesk.core.persistence.dao.AuditDao
 import com.agentdesk.core.persistence.dao.ConfirmationDao
+import com.agentdesk.core.persistence.dao.ConversationDao
 import com.agentdesk.core.persistence.dao.FtsSearchDao
 import com.agentdesk.core.persistence.dao.KnowledgeDao
 import com.agentdesk.core.persistence.dao.PolicyDecisionDao
@@ -35,6 +36,7 @@ class RetentionCleanupWorker @AssistedInject constructor(
     private val auditDao: AuditDao,
     private val policyDecisionDao: PolicyDecisionDao,
     private val confirmationDao: ConfirmationDao,
+    private val conversationDao: ConversationDao,
     private val knowledgeDao: KnowledgeDao,
     private val ftsSearchDao: FtsSearchDao
 ) : CoroutineWorker(context, params) {
@@ -48,6 +50,7 @@ class RetentionCleanupWorker @AssistedInject constructor(
                 auditDao.deleteOlderThan(thirtyDaysAgoMs)
                 policyDecisionDao.deleteOlderThan(thirtyDaysAgoMs)
                 confirmationDao.deleteOlderThan(thirtyDaysAgoMs)
+                conversationDao.deleteArchivedOlderThan(thirtyDaysAgoMs)
                 knowledgeDao.deleteSharedItemsOlderThan(sevenDaysAgoMs)
                 knowledgeDao.deleteExpiredEntities(nowMs = now, cutoffMs = sevenDaysAgoMs)
             }
