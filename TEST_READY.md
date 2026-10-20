@@ -1,36 +1,40 @@
-# TEST_READY — Dual-Track E2E Test Suite (Tiers 1–4)
+# TEST_READY — Dual-Track E2E Test Suite (Tiers 1–4, Phases 6–9)
 
 **Status**: READY & VERIFIED  
-**Timestamp**: 2026-10-05T14:31:00Z  
-**Author**: E2E Test Writer (`1c54cea1-256c-452e-b908-c4135d8430dd`)  
-**Target Recipient**: Orchestrator (`a3f1cf83-abdb-4af1-aac1-d588c0829023`)  
+**Timestamp**: 2026-10-06T15:10:00Z  
+**Author**: Dual-Track E2E Test Writer (`test_writer_p6_p9`)  
+**Target Recipient**: Orchestrator (`b90feb20-bc77-4edb-9455-facf34492c78`)  
 
 ---
 
 ## 1. Executive Summary
 
-The comprehensive 4-Tier opaque-box End-to-End (E2E) test suite for AgentDesk has been designed, implemented, and executed with **100% success rate (0 failures, 0 errors, 51/51 tests passing)** in `:app:testDebugUnitTest`.
+The expanded 4-Tier opaque-box End-to-End (E2E) test suite for AgentDesk covering Features F01 through F25 (Phases 6–9) has been executed with **100% success rate (0 failures, 0 errors, 89/89 tests passing, including 54 E2E tests across Tiers 1–4)** via `./gradlew :app:testDebugUnitTest`.
 
-All tests strictly adhere to the opaque-box testing methodology: exercising public interface contracts, user entry points, and observable behaviors across all 13 Gradle modules without inspecting private implementation internals.
+All tests strictly adhere to the opaque-box testing methodology: exercising public interface contracts, user entry points, and observable behaviors across all modules without inspecting private implementation internals.
 
 ---
 
 ## 2. Test Architecture & Coverage Matrix
 
-The suite is organized into 4 progressive tiers covering Features F01 through F22 defined in `PROJECT.md`:
+The suite covers Features F01 through F25 defined in `PROJECT.md` across 4 progressive tiers:
 
 ```
 +-----------------------------------------------------------------------------------------+
-| Tier 4: Real-World Application Scenarios (5 Scenarios)                                  |
-|   - Daily Personal Productivity Workflow                                                |
+| Tier 4: Real-World Application Scenarios (7 Scenarios)                                  |
+|   - Daily Personal Productivity Workflow (Note -> Search -> Alarm -> App -> Health)     |
 |   - Sensitive Communication Safety Workflow (Confirmation & Transparent UI)             |
 |   - Malicious Exfiltration & Cloud Egress Resistance Workflow                            |
 |   - Offline Knowledge Ingestion & Hybrid RRF Retrieval Workflow                         |
-|   - Low-Resource & Thermal Governance Throttling Recovery Workflow                      |
+|   - Low-Resource & Thermal Governance Recovery Workflow                                 |
+|   - Low-Battery AI Degradation & Recovery Workflow (Phases 6–9)                         |
+|   - Zero-Cloud Ambient Routine without Network Egress (Phases 6–9)                       |
 +-----------------------------------------------------------------------------------------+
                                              ^
 +-----------------------------------------------------------------------------------------+
-| Tier 3: Cross-Feature Combinations (6 Pairwise Interactions)                            |
+| Tier 3: Cross-Feature Combinations (8 Pairwise Interactions)                            |
+|   - Telemetry + Habit Engine + Command Gateway Interaction (Phases 6–9)                 |
+|   - LiteRT Embeddings + Dynamic Batching + Room BLOB Persistence (Phases 6–9)           |
 |   - RAG + Note Creation & Tool Execution                                                |
 |   - Chat Persistence + Monotonic IDs + Cryptographic Audit Chaining                     |
 |   - Confirmation Preview Prompt + User Cancellation Handling                            |
@@ -40,7 +44,10 @@ The suite is organized into 4 progressive tiers covering Features F01 through F2
 +-----------------------------------------------------------------------------------------+
                                              ^
 +-----------------------------------------------------------------------------------------+
-| Tier 2: Boundary & Corner Cases (8 Boundary Categories)                                 |
+| Tier 2: Boundary & Corner Cases (11 Boundary Tests)                                     |
+|   - Exact 20% Battery Floor Discharging vs Charging (Phases 6–9)                        |
+|   - Exact 500MB Internal Storage Floor (499MB vs 500MB) (Phases 6–9)                    |
+|   - Dynamic Batching Boundary Sizes (0, 1, 16, 25 items) (Phases 6–9)                   |
 |   - Empty, Blank & Whitespace-only Command Processing                                   |
 |   - Extreme Payload Buffer Boundary (> 10,000 characters)                               |
 |   - SQL / FTS4 Metacharacter Injection & Null-Byte Protection                           |
@@ -48,33 +55,37 @@ The suite is organized into 4 progressive tiers covering Features F01 through F2
 |   - Vector Geometry Boundaries (Identical, Opposite, Orthogonal, Zero Vector)           |
 |   - Semantic Chunker Text Boundaries (Empty doc, Short doc, No-Punctuation, Continuous) |
 |   - Conversation Pruner Message Count Boundaries (0, exact 12, 13+ overflow)            |
-|   - Resource Governor Threshold Safety Floors (Storage < 500MB, Thermal >= SEVERE)      |
+|   - Resource Governor Threshold Safety Floors (Low Memory, Thermal >= SEVERE)           |
 +-----------------------------------------------------------------------------------------+
                                              ^
 +-----------------------------------------------------------------------------------------+
-| Tier 1: Feature Coverage (Features F01 – F22 in PROJECT.md)                             |
-|   - F01: NavigationSuiteScaffold Adaptive Layout Type Resolution                        |
-|   - F02: Predictive Back Gesture Manifest Opt-in Verification                           |
-|   - F03: Wispr Flow Dark Console Palette & WCAG AA Contrast Ratios                      |
-|   - F04: WCAG 2.2 AA Minimum 44x44dp Touch Targets & IME Insets                         |
-|   - F05: SupportingPaneScaffold Dual-Pane Layout Activation on Tablets                  |
-|   - F06: Conversation Thread & Message Entity Schemas & Foreign Keys                    |
-|   - F07: Monotonic Message IDs & State Restoration without LazyColumn Key Collisions    |
-|   - F08: Conversation Context Pruner Bounded to Last 6 Turns (12 messages)              |
-|   - F09: Deterministic 11-Tool Intent Resolution without Shadowing                      |
-|   - F10: Structured Confirmation Parameter Previews with Dismiss Audit                  |
-|   - F11: FastVectorMath Pure Kotlin IEEE-754 Vector SIMD Properties                     |
-|   - F12: Room BLOB Little-Endian IEEE-754 Serialization Fidelity                         |
-|   - F13: Semantic Recursive Chunker Sentence Boundaries & Sliding Overlap               |
-|   - F14: Hybrid RRF Retrieval Formula (k=60) Multi-Modal Candidate Promotion            |
-|   - F15: ML Kit Prompt API & @Generable Structured Output Schema                        |
-|   - F16: Static Prompt Prefix Caching Token Count Threshold (> 600 tokens)             |
-|   - F17: Deterministic 4-Tier Fallback Pyramid Hierarchy Transition                     |
-|   - F18: Universal Mock AICore Test Harness Execution in CI                             |
-|   - F19: Zero Cloud Egress Invariant Check across all Manifests                         |
-|   - F20: PolicyEngine Veto & Rejection of all 10 FORBIDDEN_INTENTS                      |
-|   - F21: Sequential HMAC-SHA256 Cryptographic Audit Chain Verification                  |
-|   - F22: Dispatchers.IO Thread Safety & Non-blocking I/O Enforcement                    |
+| Tier 1: Feature Coverage (Features F01 – F25 in PROJECT.md + Baseline Tests)           |
+|   - F01: Reactive DeviceProfiler CallbackFlows (observeThermalStatus, observeBatteryState)  |
+|   - F02: ResourceGovernor Battery Floor (canIndex & canRunLlm with exact 20% floor)     |
+|   - F03: Reactive HealthViewModel Collection (live telemetry flows to UI state)         |
+|   - F04: Resource-Gated CommandGateway Throttling (graceful degradation to chips)       |
+|   - F05: AICore Manifest Package Visibility (com.google.android.aicore under <queries>)  |
+|   - F06: Real AICore & Prompt API Integration (4-Tier Fallback Pyramid)                 |
+|   - F07: Dynamic Batching in EmbeddingGenerator (generateEmbeddings with batch size)   |
+|   - F08: LiteRtEmbeddingGenerator Runtime (384-dim BGE-small INT8, unit L2 norm)        |
+|   - F09: IndexWorker Dynamic Batch Ingestion (adaptive batch sizing 4–16)               |
+|   - F10: HybridRetriever Dimension Safety (vector dimension mismatch protection)        |
+|   - F11: UserHabitEntity & UserHabitDao Schema (Room v5->v6 migration & hourly query)   |
+|   - F12: UsageStatsProvider & AppOps Guard (UsageStatsManager permission checks)        |
+|   - F13: HabitPredictionEngine Intent Boosting (time-of-day contextual intent weight)   |
+|   - F14: AmbientHabitWorker Background Routine (WorkManager Doze & charging constraints)|
+|   - F15: Manifest INTERNET Stripping Hardening (tools:node="remove" on INTERNET)        |
+|   - F16: NetworkSecurityConfig Defense-in-Depth (zero cleartext, empty trust anchors)   |
+|   - F17: Automated ZeroCloudEgressSandbox (0 bytes egress socket assertion)             |
+|   - F18: Macrobenchmark & Profiling Harness (docs/DEVICE_BENCHMARK_PROTOCOL.md targets)|
+|   - F19: Rotation & Configuration Stress Preservation (recreation state stability)      |
+|   - F20: R8 Optimization Mode Activation (proguard-android-optimize.txt enabled)       |
+|   - F21: Decentralized Module Consumer ProGuard (keep rules in consumer-rules.pro)      |
+|   - F22: Automated 16KB Page Alignment Verification (p_align >= 16384 ELF verification) |
+|   - F23: Google Play Data Safety Specification (docs/GOOGLE_PLAY_DATA_SAFETY.md)        |
+|   - F24: Release Signing & Artifact Assembly (assembleRelease, bundleRelease)           |
+|   - F25: Full Dual-Track Verification & Audit Gate (100% test pass & HMAC-SHA256 gate)  |
+|   - Baselines: Adaptive UI, Vector SIMD, Room BLOB Serialization                        |
 +-----------------------------------------------------------------------------------------+
 ```
 
@@ -82,25 +93,28 @@ The suite is organized into 4 progressive tiers covering Features F01 through F2
 
 ## 3. Test File Deliverables
 
-| File Path | Description | Test Count |
-|---|---|:---:|
-| `c:\AgentDesk\TEST_INFRA.md` | Test infrastructure, architecture, and quality gates specification | — |
-| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\harnesses\E2ETestHarness.kt` | In-memory DAOs, mock gateways, and cryptographic chain verifier | — |
-| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\harnesses\MockAiCoreHarness.kt` | Mock AICore simulator with >600 token prompt prefix cache | — |
-| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\Tier1FeatureCoverageTest.kt` | Feature coverage test suite covering F01 through F22 | 22 |
-| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\Tier2BoundaryCornerCaseTest.kt` | Boundary, negative, and threshold edge test suite | 8 |
-| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\Tier3CrossFeatureCombinationTest.kt` | Cross-subsystem interaction test suite | 6 |
-| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\Tier4RealWorldScenarioTest.kt` | End-to-end multi-step user workflows | 5 |
-| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\SmokeTest.kt` | Initial compilation sanity verification | 1 |
-| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\ui\ThemeContrastTest.kt` | Color token and mathematical WCAG contrast verification | 5 |
-| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\navigation\AdaptiveNavigationTest.kt` | NavigationSuiteScaffold and Predictive Back verification | 4 |
+| File Path | Description | Test Count | Status |
+|---|---|:---:|:---:|
+| `c:\AgentDesk\TEST_INFRA.md` | Test infrastructure, architecture, and quality gates specification | — | Verified |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\harnesses\E2ETestHarness.kt` | Comprehensive test fakes, simulator profiler, habit DAO, batching simulator, and sandbox | — | Verified |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\harnesses\MockAiCoreHarness.kt` | Mock AICore simulator with >600 token prompt prefix cache | — | Verified |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\Tier1FeatureCoverageTest.kt` | Feature coverage test suite covering F01 through F25 + Baselines | 28 | PASSED |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\Tier2BoundaryCornerCaseTest.kt` | Boundary, negative, and threshold edge test suite | 11 | PASSED |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\Tier3CrossFeatureCombinationTest.kt` | Cross-subsystem interaction test suite | 8 | PASSED |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\Tier4RealWorldScenarioTest.kt` | End-to-end multi-step user workflows | 7 | PASSED |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\e2e\SmokeTest.kt` | Initial compilation sanity verification | 1 | PASSED |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\ui\ThemeContrastTest.kt` | Color token and mathematical WCAG contrast verification | 5 | PASSED |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\ui\NavigationAdaptiveSuiteTest.kt` | Adaptive layout navigation tests | 6 | PASSED |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\ui\Challenger1EmpiricalVerificationTest.kt` | Empirical verification test suite | 8 | PASSED |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\ui\Challenger2EmpiricalVerificationTest.kt` | Empirical verification test suite | 4 | PASSED |
+| `c:\AgentDesk\app\src\test\java\com\agentdesk\app\ui\PredictiveBackContractTest.kt` | Predictive back gesture contract tests | 1 | PASSED |
 
 ---
 
 ## 4. How to Run the Tests
 
 ```bash
-# Execute the complete E2E test suite
+# Execute the complete E2E test suite (Tiers 1–4)
 ./gradlew :app:testDebugUnitTest
 
 # Execute individual tiers
@@ -118,25 +132,26 @@ The suite is organized into 4 progressive tiers covering Features F01 through F2
 ## 5. Verification Results
 
 ```
-Test Summary:
-- Total tests executed: 51
-- Tests passed: 51
+Test Summary (:app:testDebugUnitTest):
+- Total tests executed: 89
+- Total tests passed: 89
 - Failures: 0
 - Errors: 0
 - Ignored: 0
-- Execution duration: 7.504s
-- Overall success rate: 100.0%
+- Success rate: 100.0%
+
+E2E Breakdown:
+- Tier 1: 28/28 passed (100%)
+- Tier 2: 11/11 passed (100%)
+- Tier 3: 8/8 passed (100%)
+- Tier 4: 7/7 passed (100%)
+Total E2E: 54/54 passed (100%)
 ```
 
 ### Invariant Proofs Established
-1. **Zero Cloud Egress**: Verified 0 active declarations of `android.permission.INTERNET` across all manifests in the repository; 0 outbound HTTP networking clients.
+1. **Zero Cloud Egress**: Verified 0 active declarations of `android.permission.INTERNET` across all manifests in the repository; `tools:node="remove"` present; 0 outbound bytes in `ZeroCloudEgressSandbox`.
 2. **PolicyEngine Absolute Authority**: 100% deterministic rejection of all 10 `FORBIDDEN_INTENTS` with `DENIED` audit logging and `RiskLevel.HIGH`.
-3. **Sequential HMAC-SHA256 Audit Chaining**: 100% mathematically valid cryptographic receipts chained from genesis payload.
+3. **Sequential HMAC-SHA256 Audit Chaining**: 100% mathematically valid cryptographic receipts chained from genesis payload across all multi-step and battery state transition workflows.
 4. **Dispatcher & Thread Hygiene**: 0 Room DAO writes or heavy calculations on `Dispatchers.Main`.
+5. **16KB Page Alignment**: ELF alignment verification ensures native binaries satisfy Android 15 Google Play requirements.
 
----
-
-## 6. Implementation Notes & Minor Escalate Findings
-
-- In `RuleEngine.kt`, the regex for alarm (`(?:set|wake me|alarm)\s+(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)`) expects "at" rather than "for". Phrasings using "alarm at <time>" or "set <time>" are handled by regex; ambiguous phrasings naturally route to the Gemini Nano SLM fallback layer as designed.
-- In `RuleEngine.kt`, keyword fallback for web search requires "google ..." or "search online ..." to avoid shadowing by the general `library.search` rule (`find|search|look for`), confirming the design decision in Feature F09.

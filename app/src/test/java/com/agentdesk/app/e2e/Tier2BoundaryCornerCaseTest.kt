@@ -215,4 +215,105 @@ class Tier2BoundaryCornerCaseTest {
         // Low memory boundary
         assertFalse("Low memory flag must pause indexing", canIndex(1000L, true, 0))
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 9. Battery Boundary: Exact 20% Discharging vs Charging (Phases 6–9)
+    // ─────────────────────────────────────────────────────────────────────────
+    @Test
+    fun testBatteryBoundaryExact20PercentDischargingVsCharging() {
+        val profiler = harness.profiler
+        val governor = harness.resourceGovernor
+
+        // Boundary test 1: 19% discharging -> both false
+        profiler.simPercent = 19
+        profiler.simCharging = false
+        assertFalse("19% discharging must pause indexing", governor.canIndex())
+        assertFalse("19% discharging must pause LLM", governor.canRunLlm())
+
+        // Boundary test 2: 20% discharging -> both true
+        profiler.simPercent = 20
+        profiler.simCharging = false
+        assertTrue("Exact 20% discharging must allow indexing", governor.canIndex())
+        assertTrue("Exact 20% discharging must allow LLM", governor.canRunLlm())
+
+        // Boundary test 3: 19% charging -> both true (charging overrides low battery)
+        profiler.simPercent = 19
+        profiler.simCharging = true
+        assertTrue("19% charging must allow indexing", governor.canIndex())
+        assertTrue("19% charging must allow LLM", governor.canRunLlm())
+
+        // Boundary test 4: 0% charging -> both true
+        profiler.simPercent = 0
+        profiler.simCharging = true
+        assertTrue("0% charging must allow indexing", governor.canIndex())
+        assertTrue("0% charging must allow LLM", governor.canRunLlm())
+
+        // Boundary test 5: 0% discharging -> both false
+        profiler.simPercent = 0
+        profiler.simCharging = false
+        assertFalse("0% discharging must pause indexing", governor.canIndex())
+        assertFalse("0% discharging must pause LLM", governor.canRunLlm())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 10. Dynamic Batching Boundary Sizes (0, 1, 16, 25 items) (Phases 6–9)
+    // ─────────────────────────────────────────────────────────────────────────
+    @Test
+    fun testDynamicBatchingBoundarySizes() {
+        val simulator = harness.embeddingGenerator
+
+        // Case 1: Empty list (0 items)
+        simulator.batchInvocations.clear()
+        val emptyResult = simulator.generateEmbeddings(emptyList(), maxBatchSize = 16)
+        assertTrue("Empty list produces empty embedding list", emptyResult.isEmpty())
+        assertEquals("Empty list triggers zero batch invocations", 0, simulator.batchInvocations.size)
+
+        // Case 2: Single item (1 item)
+        simulator.batchInvocations.clear()
+        val singleResult = simulator.generateEmbeddings(listOf("single item"), maxBatchSize = 16)
+        assertEquals(1, singleResult.size)
+        assertEquals(1, simulator.batchInvocations.size)
+        assertEquals(1, simulator.batchInvocations.first().size)
+
+        // Case 3: Exactly batch size 16 (16 items)
+        simulator.batchInvocations.clear()
+        val exact16Items = (1..16).map { "Item $it" }
+        val exact16Result = simulator.generateEmbeddings(exact16Items, maxBatchSize = 16)
+        assertEquals(16, exact16Result.size)
+        assertEquals("Exact batch size produces exactly 1 batch", 1, simulator.batchInvocations.size)
+        assertEquals(16, simulator.batchInvocations.first().size)
+
+        // Case 4: Overflow batch size (25 items with batch size 16)
+        simulator.batchInvocations.clear()
+        val overflow25Items = (1..25).map { "Item $it" }
+        val overflow25Result = simulator.generateEmbeddings(overflow25Items, maxBatchSize = 16)
+        assertEquals(25, overflow25Result.size)
+        assertEquals("25 items with batch size 16 produces exactly 2 batches", 2, simulator.batchInvocations.size)
+        assertEquals(16, simulator.batchInvocations[0].size)
+        assertEquals(9, simulator.batchInvocations[1].size)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 11. Storage Threshold Boundary: Exact 500MB Storage Floor (Phases 6–9)
+    // ─────────────────────────────────────────────────────────────────────────
+    @Test
+    fun testStorageThresholdBoundaryExact500MbFloor() {
+        val profiler = harness.profiler
+        val governor = harness.resourceGovernor
+
+        // State 1: 501MB available -> allowed
+        profiler.simAvailableStorageMb = 501L
+        assertTrue("501MB storage must allow indexing", governor.canIndex())
+
+        // State 2: Exactly 500MB available -> allowed (boundary threshold)
+        profiler.simAvailableStorageMb = 500L
+        assertTrue("Exact 500MB floor must allow indexing", governor.canIndex())
+
+        // State 3: 499MB available -> denied
+        profiler.simAvailableStorageMb = 499L
+        assertFalse("499MB storage must pause indexing", governor.canIndex())
+        val reason = governor.currentConstraintReason()
+        assertNotNull(reason)
+        assertTrue(reason!!.contains("below 500MB"))
+    }
 }

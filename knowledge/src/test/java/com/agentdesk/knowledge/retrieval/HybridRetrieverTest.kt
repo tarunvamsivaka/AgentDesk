@@ -60,6 +60,23 @@ class HybridRetrieverTest {
         assertTrue(results.isEmpty())
     }
 
+    @Test
+    fun retrieve_skipsDimensionMismatchedEmbeddingsWithoutCrashing() = runBlocking {
+        val chunk1 = TextChunkEntity(id = 101, documentId = 1, chunkIndex = 0, content = "Passport text")
+        mockKnowledgeDao.storedChunks[101] = chunk1
+
+        // Vector 1 has matching dimension (2), Vector 2 has mismatched dimension (128)
+        val vec1 = FastVectorMath.toByteArray(floatArrayOf(0.5f, 0.5f))
+        val vecMismatched = FastVectorMath.toByteArray(FloatArray(128) { 0.1f })
+        mockKnowledgeDao.storedEmbeddings.add(EmbeddingVectorEntity(id = 1, chunkId = 101, vectorBlob = vec1))
+        mockKnowledgeDao.storedEmbeddings.add(EmbeddingVectorEntity(id = 2, chunkId = 102, vectorBlob = vecMismatched))
+
+        // Must execute cleanly and not throw IllegalArgumentException
+        val results = retriever.retrieve("passport", limit = 5)
+        assertFalse(results.isEmpty())
+        assertTrue(results.any { it.chunk.id == 101L })
+    }
+
     // --- Mock Implementations ---
 
     class MockFtsSearchDao : FtsSearchDao {

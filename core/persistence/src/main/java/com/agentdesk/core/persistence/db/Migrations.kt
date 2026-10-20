@@ -6,7 +6,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * Versioned database migrations for AgentDeskDatabase.
  *
- * Ensures user data (notes, indexed documents, audit trail, consent) is never
+ * Ensures user data (notes, indexed documents, audit trail, consent, habits) is never
  * wiped destructively on version upgrades.
  */
 object Migrations {
@@ -46,10 +46,31 @@ object Migrations {
         }
     }
 
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `user_habit_stats` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `package_name` TEXT NOT NULL,
+                    `app_name` TEXT NOT NULL,
+                    `hour_of_day` INTEGER NOT NULL,
+                    `interaction_count` INTEGER NOT NULL,
+                    `total_foreground_time_ms` INTEGER NOT NULL,
+                    `associated_intent` TEXT,
+                    `confidence_weight` REAL NOT NULL,
+                    `last_observed_at` INTEGER NOT NULL
+                )
+            """.trimIndent())
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_user_habit_stats_package_name_hour_of_day` ON `user_habit_stats` (`package_name`, `hour_of_day`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_user_habit_stats_hour_of_day_interaction_count` ON `user_habit_stats` (`hour_of_day`, `interaction_count`)")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
         MIGRATION_3_4,
-        MIGRATION_4_5
+        MIGRATION_4_5,
+        MIGRATION_5_6
     )
 }

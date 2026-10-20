@@ -1,7 +1,11 @@
 package com.agentdesk.core.device
 
 import com.agentdesk.core.common.model.DeviceTier
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeviceProfilerTest {
@@ -184,4 +188,67 @@ class DeviceProfilerTest {
         )
         assertEquals(DeviceTier.FULL, fullProfiler.classifyTier())
     }
+
+    // ─── Battery & Telemetry Tests ───────────────────────────────────────────
+
+    @Test
+    fun `BatteryState default values are safe`() {
+        val defaultState = BatteryState()
+        assertEquals(0, defaultState.percent)
+        assertFalse(defaultState.isCharging)
+
+        val customState = BatteryState(percent = 85, isCharging = true)
+        assertEquals(85, customState.percent)
+        assertTrue(customState.isCharging)
+    }
+
+    private class BatterySimulatedProfiler(
+        private val simPercent: Int,
+        private val simCharging: Boolean,
+        private val simThermal: Int = 0
+    ) : DeviceProfiler() {
+        override fun getBatteryPercent(): Int = simPercent
+        override fun isCharging(): Boolean = simCharging
+        override fun getThermalStatus(): Int = simThermal
+    }
+
+    @Test
+    fun `isBatteryLow returns true when percent is below 20 and not charging`() {
+        val lowDischarging = BatterySimulatedProfiler(simPercent = 19, simCharging = false)
+        assertTrue(lowDischarging.isBatteryLow())
+
+        val zeroDischarging = BatterySimulatedProfiler(simPercent = 0, simCharging = false)
+        assertTrue(zeroDischarging.isBatteryLow())
+    }
+
+    @Test
+    fun `isBatteryLow returns false when percent is below 20 but charging`() {
+        val lowCharging = BatterySimulatedProfiler(simPercent = 15, simCharging = true)
+        assertFalse(lowCharging.isBatteryLow())
+    }
+
+    @Test
+    fun `isBatteryLow returns false when percent is 20 or higher`() {
+        val boundary = BatterySimulatedProfiler(simPercent = 20, simCharging = false)
+        assertFalse(boundary.isBatteryLow())
+
+        val healthy = BatterySimulatedProfiler(simPercent = 80, simCharging = false)
+        assertFalse(healthy.isBatteryLow())
+    }
+
+    @Test
+    fun `observeThermalStatus emits initial status without error`() = runBlocking {
+        val profiler = BatterySimulatedProfiler(simPercent = 50, simCharging = false, simThermal = 2)
+        val initialStatus = profiler.observeThermalStatus().first()
+        assertEquals(2, initialStatus)
+    }
+
+    @Test
+    fun `observeBatteryState emits initial battery state without error`() = runBlocking {
+        val profiler = BatterySimulatedProfiler(simPercent = 75, simCharging = true)
+        val initialState = profiler.observeBatteryState().first()
+        assertEquals(75, initialState.percent)
+        assertTrue(initialState.isCharging)
+    }
 }
+

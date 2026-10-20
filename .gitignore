@@ -24,3 +24,5 @@ build_output*.txt
 test_output*.txt
 .kotlin/
 .agents/teamwork/
+.agents/skills/android-profiler/references/perfetto/bin/trace_processor
+

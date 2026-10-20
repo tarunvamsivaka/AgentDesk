@@ -34,67 +34,75 @@ All tests in this suite adhere strictly to the opaque-box paradigm: exercising u
                                   ^
 +-------------------------------------------------------------------+
 |             Tier 1: Feature Coverage                              |
-|   (Representative Inputs for Features F01 - F22 in PROJECT.md)     |
+|   (Representative Inputs for Features F01 - F25 in PROJECT.md)     |
 +-------------------------------------------------------------------+
 ```
 
 ### Tier 1: Feature Coverage
-Validates the canonical happy path and fundamental behavior of all features specified in `PROJECT.md`:
-- **Adaptive UI & Modern Theme (F01 - F05)**:
-  - F01: NavigationSuiteScaffold adaptive layout configuration across compact (phone) and expanded (tablet) viewports.
-  - F02: Predictive Back gesture handling (`enableOnBackInvokedCallback="true"`, back-invoked callback registration).
-  - F03: Wispr Flow dark developer console theme (#0F172A background, #1E293B surface, #22C55E accent, #F8FAFC text, #475569 border).
-  - F04: WCAG 2.2 AA accessibility requirements (minimum 44x44dp touch targets, visible focus rings, edge-to-edge system bar and IME insets).
-  - F05: SupportingPaneScaffold dual-pane layout logic on expanded/tablet screens.
-- **Core Chat & Tool Execution (F06 - F10)**:
-  - F06: Conversation thread and message entity schemas and foreign key cascade rules.
-  - F07: Monotonic message ID ordering and state restoration.
-  - F08: Conversation context pruner bounded to the last 6 turns (12 messages, ~2,048 tokens).
-  - F09: Deterministic resolution of all 11 core capabilities: alarms, timers, calendar, notes, dialer, SMS draft, maps, web search, app launch, library search, device health.
-  - F10: Confirmation parameter preview cards with dismiss audit logging.
-- **Local Vector RAG & Hybrid Retrieval (F11 - F14)**:
-  - F11: FastVectorMath pure Kotlin IEEE-754 vector dot products, vector normalization, and cosine similarity.
-  - F12: Room BLOB byte buffer serialization/deserialization for embedding vectors.
-  - F13: Semantic recursive chunker preserving sentence/paragraph boundaries with sliding-window overlap.
-  - F14: Fused SQLite FTS4 BM25 and dense vector search via Reciprocal Rank Fusion (RRF, k=60) with < 100ms SLA.
-- **Hybrid Intent Engine & Gemini Nano (F15 - F18)**:
-  - F15: ML Kit Prompt API & `@Generable` structured output schema (`ClassifiedIntent`).
-  - F16: Prompt prefix caching (> 600 tokens static persona and tool catalogue).
-  - F17: Deterministic 4-tier fallback pyramid: Regex (< 5ms) -> Gemini Nano (~500ms) -> LiteRT -> FTS4 Clarification chips.
-  - F18: Universal Mock AICore test harness for CI and emulator execution.
-- **Non-Negotiable Invariants (F19 - F22)**:
-  - F19: Zero Cloud Egress invariant (0 `android.permission.INTERNET`, no HTTP libraries, socket blocking).
-  - F20: PolicyEngine absolute veto authority over all 10 `FORBIDDEN_INTENTS`.
-  - F21: Sequential HMAC-SHA256 audit digest chaining and mathematical proof verification.
-  - F22: Dispatchers.IO thread safety enforcement (0 Room DAO writes or heavy I/O on Dispatchers.Main).
+Validates the canonical happy path and fundamental behavior of all 25 features specified in `PROJECT.md` (Phases 6–9):
+- **Hardware Telemetry & AICore (F01 - F06 / Phase 6)**:
+  - F01: Reactive `DeviceProfiler` CallbackFlows (`observeThermalStatus()`, `observeBatteryState()`).
+  - F02: `ResourceGovernor` Battery Floor (exact 20% threshold discharging vs charging, `canIndex()`, `canRunLlm()`).
+  - F03: Reactive `HealthViewModel` Collection (live telemetry flows to `HealthUiState`).
+  - F04: Resource-Gated `CommandGateway` Throttling (graceful degradation to clarification chips under low battery/thermal).
+  - F05: AICore Manifest Package Visibility (`<package android:name="com.google.android.aicore" />` under `<queries>`).
+  - F06: Real AICore & Prompt API Integration (4-Tier Fallback Pyramid: Regex -> SLM -> LiteRT -> Clarification chips).
+- **LiteRT Embeddings & Ambient Habit Engine (F07 - F14 / Phase 7)**:
+  - F07: Dynamic Batching in `EmbeddingGenerator` (`generateEmbeddings(texts)` with configurable batch size).
+  - F08: `LiteRtEmbeddingGenerator` Runtime (384-dimension BGE-small INT8 runtime, unit L2 normalization).
+  - F09: `IndexWorker` Dynamic Batch Ingestion (adaptive batch sizing 4–16 based on device resources).
+  - F10: `HybridRetriever` Dimension Safety (safeguard against vector dimension mismatches across model versions).
+  - F11: `UserHabitEntity` & `UserHabitDao` Schema (Room v5->v6 migration, hourly frequency queries).
+  - F12: `UsageStatsProvider` & AppOps Guard (`UsageStatsManager` permission checks and offline zero-egress fallback).
+  - F13: `HabitPredictionEngine` Intent Boosting (contextual time-of-day habit weighting and suggestion stream).
+  - F14: `AmbientHabitWorker` Background Routine (battery-neutral background routine constraints).
+- **Automated Zero-Cloud Egress Sandbox & Performance (F15 - F19 / Phase 8)**:
+  - F15: Manifest INTERNET Stripping Hardening (`tools:node="remove"` on `android.permission.INTERNET`).
+  - F16: NetworkSecurityConfig Defense-in-Depth (`res/xml/network_security_config.xml` zero cleartext and empty trust anchors).
+  - F17: Automated `ZeroCloudEgressSandbox` (socket interception and assertion of 0 outbound bytes).
+  - F18: Macrobenchmark & Profiling Harness (`docs/DEVICE_BENCHMARK_PROTOCOL.md` cold startup and command latency budgets).
+  - F19: Rotation & Configuration Stress Suite (ViewModel state preservation and zero duplicate message IDs across recreation).
+- **Release Engineering & Store Readiness (F20 - F25 / Phase 9 & Verification)**:
+  - F20: R8 Optimization Mode Activation (`proguard-android-optimize.txt` activation in release build).
+  - F21: Decentralized Module Consumer ProGuard (keep rules across `:core:persistence`, `:knowledge`, `:agent`, `:core:device`).
+  - F22: Automated 16KB Page Alignment Verification (`p_align >= 16384` ELF verification on native binaries).
+  - F23: Google Play Data Safety Specification (`docs/GOOGLE_PLAY_DATA_SAFETY.md` proving zero off-device collection/sharing).
+  - F24: Release Signing & Artifact Assembly (`assembleRelease`, `bundleRelease` release build readiness).
+  - F25: Full Dual-Track Verification & Audit Gate (100% test pass rate and HMAC-SHA256 audit gate validation).
 
 ### Tier 2: Boundary & Corner Cases
 Tests edge conditions, extreme parameters, and invalid states:
 - Empty, whitespace-only, and ultra-short command inputs.
 - Massive payloads (> 10,000 characters) exceeding typical input buffers.
-- Format strings, SQL injection patterns, FTS4 query meta-characters, and null bytes.
-- Prompt prefix token length boundary (below 600 vs at/above 600 tokens).
-- Vector geometry edge cases: identical parallel vectors (similarity 1.0), orthogonal vectors (similarity 0.0), diametrically opposed vectors (similarity -1.0), and zero-vector guard handling.
-- Semantic chunking boundaries: empty document, single-character document, documents without punctuation, huge continuous text blocks without whitespace.
-- Conversation pruning boundaries: empty history, exactly 6 turns (12 messages), 7+ turns (14 messages pruned to 12), and long message truncation.
-- Resource governor boundaries: internal storage < 500MB safety threshold, low memory conditions, and thermal status >= SEVERE.
+- SQL / FTS4 metacharacter injection and format-string handling.
+- Exact battery boundaries: 19% vs 20% discharging vs charging.
+- Exact internal storage floor: 499MB (rejected) vs 500MB (allowed).
+- Dynamic batching boundaries: 0 items, 1 item, exact batch size (16 items), multi-batch overflow (25 items).
+- Prompt prefix token count boundary (599 vs 600+ tokens).
+- Vector geometry edge cases (identical, opposite, orthogonal, zero-vector).
+- Semantic chunking text boundaries (empty, short, no-punctuation, continuous).
+- Conversation context pruning turn boundaries (empty, exact 12 messages, 14 messages pruned to 12).
 
 ### Tier 3: Cross-Feature Combinations
 Tests pairwise interactions across subsystems:
-- **RAG + Tool Execution**: Knowledge retrieval providing context for note creation or SMS drafting.
-- **Chat Persistence + Monotonic IDs + Audit Logging**: Multi-turn dialogue execution where each message receives a monotonic ID and generates an HMAC-signed audit entry.
-- **Confirmation Preview + User Cancellation**: Medium-risk command triggers confirmation prompt; user rejects/dismisses; `USER_CANCELLED` audit receipt is logged with no tool execution.
-- **PolicyEngine + Forbidden Intent Attempt**: Malicious or unauthorized intent evaluation rejected with `DENIED` audit receipt and `CommandOutcome.Rejected`.
-- **Privacy Redaction + Cryptographic Chaining**: User input containing PII (phone, email, credentials) is redacted prior to persistence while preserving cryptographic audit chain integrity.
-- **Fallback Pyramid Transition**: Fast-path regex miss smoothly routes to secondary SLM classifier, evaluates PolicyEngine, and dispatches tool.
+- **Telemetry + Habit Engine + Command Gateway**: Battery-governed habit suggestion execution.
+- **LiteRT Embeddings + Dynamic Batching + Room BLOB Persistence**: Batch vectorization and SQLite BLOB storage.
+- **RAG + Tool Execution**: Knowledge retrieval providing context for tool execution.
+- **Chat Persistence + Monotonic IDs + Audit Logging**: Multi-turn dialogue execution with HMAC-signed audit logs.
+- **Confirmation Preview + User Cancellation**: Medium-risk command triggers confirmation prompt; cancellation logged.
+- **PolicyEngine + Forbidden Intent Attempt**: Blocked intent verified with `DENIED` audit receipt.
+- **Privacy Redaction + Cryptographic Chaining**: PII redaction preserves cryptographic audit chain integrity.
+- **Fallback Pyramid Transition**: Fast-path regex to on-device SLM to clarification chips.
 
 ### Tier 4: Real-World Application Scenarios
 Full end-to-end user workflows simulating production scenarios:
-1. **Daily Personal Productivity**: Create a note -> search knowledge library -> set an alarm -> open an application -> check device health.
-2. **Sensitive Communication Safety**: Request SMS draft -> PolicyEngine classifies MEDIUM risk -> UI prompts confirmation preview -> User reviews parameters -> User confirms -> System launches native SMS UI -> Audit receipt chained.
-3. **Malicious Exfiltration Resistance**: Attacker attempts silent background sync or exfiltration -> PolicyEngine deterministically blocks -> Zero Cloud Egress verified -> Audit log captures attempt.
-4. **Offline Knowledge Ingestion & Hybrid Retrieval**: Document parsed -> chunked with sliding window -> vector serialized -> hybrid RRF search returns relevant passage without internet access.
-5. **Resource Governance Throttling & Recovery**: Low storage (< 500MB) or thermal surge suspends background AI/indexing -> resource recovers -> operations resume safely.
+1. **Daily Personal Productivity**: Note creation -> library search -> alarm setting -> app launch -> health check.
+2. **Sensitive Communication Safety**: SMS draft -> PolicyEngine classifies MEDIUM risk -> transparent confirmation -> native intent launch -> audit chaining.
+3. **Malicious Exfiltration Resistance**: Injection attempting silent sync/SMS exfiltration -> blocked by PolicyEngine -> zero cloud egress verified -> audit captured.
+4. **Offline Knowledge Ingestion & Hybrid Retrieval**: Document parsed -> chunked -> vectorized -> hybrid RRF search returns relevant passage without network.
+5. **Low-Resource & Thermal Governance Recovery**: Low storage (< 500MB) or thermal surge suspends AI -> cools/recovers -> resumes execution.
+6. **Low-Battery AI Degradation & Recovery**: Battery drops below 20% -> LLM throttles to clarification chips while regex fast path executes -> charger connected -> full SLM execution resumes.
+7. **Zero-Cloud Ambient Routine**: Evening habit triggered -> ambient routine executed within `ZeroCloudEgressSandbox` -> 0 outbound network bytes -> cryptographic audit verified.
 
 ---
 

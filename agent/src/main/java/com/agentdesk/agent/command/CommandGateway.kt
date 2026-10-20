@@ -9,6 +9,7 @@ import com.agentdesk.core.persistence.dao.AuditDao
 import com.agentdesk.core.persistence.dao.CommandDao
 import com.agentdesk.core.persistence.entity.AuditEventEntity
 import com.agentdesk.core.persistence.entity.CommandRecordEntity
+import com.agentdesk.core.device.ResourceGovernor
 import com.agentdesk.core.security.Redactor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -39,7 +40,9 @@ class CommandGateway @Inject constructor(
     private val auditDao: AuditDao,
     private val redactor: Redactor,
     private val dispatcher: CoroutineDispatcher,
-    private val llmManager: com.agentdesk.agent.intent.OnDeviceLlmManager = com.agentdesk.agent.intent.DefaultOnDeviceLlmManager()
+    private val llmManager: com.agentdesk.agent.intent.OnDeviceLlmManager = com.agentdesk.agent.intent.DefaultOnDeviceLlmManager(),
+    private val resourceGovernor: ResourceGovernor? = null,
+    private val habitPredictionEngine: com.agentdesk.agent.habit.HabitPredictionEngine? = null
 ) {
 
     suspend fun submitText(
@@ -79,22 +82,31 @@ class CommandGateway @Inject constructor(
             entities = ruleResult.entities
             confidence = ruleResult.confidence
         } else {
-            // Tier 1 & 2: On-device SLM classification (Gemini Nano / LiteRT)
-            val slmResult = llmManager.classifyIntent(normalized, thermalThrottled = thermalThrottled)
-            if (slmResult.intentName == "clarification") {
-                finish(commandId, "clarification", STATUS_UNKNOWN, startedAt)
-                return@withContext CommandOutcome.Clarification(rawInput, slmResult.clarificationChips)
-            } else if (slmResult.confidence >= CONFIDENCE_THRESHOLD) {
-                intentName = slmResult.intentName
-                entities = slmResult.entities
-                confidence = slmResult.confidence
+            // Contextual Habit Boosting (between Tier 0 and Tier 1 SLM)
+            val boosted = habitPredictionEngine?.boostIntentIfHabitual(normalized)
+            if (boosted != null && boosted.confidence >= CONFIDENCE_THRESHOLD) {
+                intentName = boosted.intentName
+                entities = boosted.entities
+                confidence = boosted.confidence
             } else {
-                // Tier 3: Unknown with fallback chips
-                finish(commandId, "unknown", STATUS_UNKNOWN, startedAt)
-                return@withContext CommandOutcome.Clarification(
-                    rawInput,
-                    slmResult.clarificationChips.ifEmpty { listOf("Search Library", "Set Alarm", "Create Note") }
-                )
+                // Tier 1 & 2: On-device SLM classification (Gemini Nano / LiteRT)
+                val throttled = thermalThrottled || (resourceGovernor != null && !resourceGovernor.canRunLlm())
+                val slmResult = llmManager.classifyIntent(normalized, thermalThrottled = throttled)
+                if (slmResult.intentName == "clarification") {
+                    finish(commandId, "clarification", STATUS_UNKNOWN, startedAt)
+                    return@withContext CommandOutcome.Clarification(rawInput, slmResult.clarificationChips)
+                } else if (slmResult.confidence >= CONFIDENCE_THRESHOLD) {
+                    intentName = slmResult.intentName
+                    entities = slmResult.entities
+                    confidence = slmResult.confidence
+                } else {
+                    // Tier 3: Unknown with fallback chips
+                    finish(commandId, "unknown", STATUS_UNKNOWN, startedAt)
+                    return@withContext CommandOutcome.Clarification(
+                        rawInput,
+                        slmResult.clarificationChips.ifEmpty { listOf("Search Library", "Set Alarm", "Create Note") }
+                    )
+                }
             }
         }
 

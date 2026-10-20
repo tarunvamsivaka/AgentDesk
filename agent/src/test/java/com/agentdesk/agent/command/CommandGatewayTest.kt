@@ -10,6 +10,8 @@ import com.agentdesk.core.persistence.dao.PolicyDecisionDao
 import com.agentdesk.core.persistence.entity.AuditEventEntity
 import com.agentdesk.core.persistence.entity.CommandRecordEntity
 import com.agentdesk.core.persistence.entity.PolicyDecisionEntity
+import com.agentdesk.core.device.DeviceProfiler
+import com.agentdesk.core.device.ResourceGovernor
 import com.agentdesk.core.security.Redactor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -223,6 +225,159 @@ class CommandGatewayTest {
         assertTrue(toolRunner.invoked.isEmpty())
         assertEquals("unknown", commandDao.statusUpdates.single().intentName)
         assertEquals(CommandGateway.STATUS_UNKNOWN, commandDao.statusUpdates.single().status)
+    }
+
+    // ─── ResourceGovernor Throttling Tests ────────────────────────────────────
+
+    private class SimulatedDeviceProfiler(
+        val lowBattery: Boolean = false,
+        val thermalHot: Boolean = false
+    ) : DeviceProfiler() {
+        override fun getBatteryPercent(): Int = if (lowBattery) 10 else 80
+        override fun isCharging(): Boolean = false
+        override fun getThermalStatus(): Int = if (thermalHot) 3 else 0
+        override fun getAvailableRamMb(): Long = 2048L
+        override fun isLowMemory(): Boolean = false
+        override fun getAvailableStorageMb(): Long = 2000L
+        override fun classifyTier(): com.agentdesk.core.common.model.DeviceTier = com.agentdesk.core.common.model.DeviceTier.FULL
+    }
+
+    @Test
+    fun `when ResourceGovernor denies LLM inference due to low battery, complex query degrades to clarification`() = runBlocking {
+        val throttledGov = ResourceGovernor(SimulatedDeviceProfiler(lowBattery = true))
+        val throttledGateway = CommandGateway(
+            ruleEngine = RuleEngine(),
+            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
+            toolRunner = toolRunner,
+            commandDao = commandDao,
+            auditDao = auditDao,
+            redactor = Redactor(),
+            dispatcher = Dispatchers.Unconfined,
+            resourceGovernor = throttledGov
+        )
+
+        // Query that requires LLM ("wake me up tomorrow" not matching regex RuleEngine)
+        val outcome = throttledGateway.submitText("wake me up tomorrow")
+
+        assertTrue(outcome is CommandOutcome.Clarification)
+        assertTrue(toolRunner.invoked.isEmpty())
+        assertEquals("clarification", commandDao.statusUpdates.single().intentName)
+    }
+
+    @Test
+    fun `when ResourceGovernor permits LLM inference, complex query is resolved and executed`() = runBlocking {
+        toolRunner.nextResult = ToolRunResult("set_alarm", true, "Alarm set.")
+        val healthyGov = ResourceGovernor(SimulatedDeviceProfiler(lowBattery = false, thermalHot = false))
+        val healthyGateway = CommandGateway(
+            ruleEngine = RuleEngine(),
+            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
+            toolRunner = toolRunner,
+            commandDao = commandDao,
+            auditDao = auditDao,
+            redactor = Redactor(),
+            dispatcher = Dispatchers.Unconfined,
+            resourceGovernor = healthyGov
+        )
+
+        val outcome = healthyGateway.submitText("wake me up tomorrow")
+
+        assertTrue(outcome is CommandOutcome.Executed)
+        assertEquals("Alarm set.", (outcome as CommandOutcome.Executed).message)
+        assertEquals("system.set_alarm", commandDao.statusUpdates.single().intentName)
+    }
+
+    // ─── HabitPredictionEngine Boosting Tests ─────────────────────────────────
+
+    private class FakeHabitDaoForGateway : com.agentdesk.core.persistence.dao.UserHabitDao {
+        override fun observeTopHabitsForHour(hourOfDay: Int, limit: Int) = kotlinx.coroutines.flow.emptyFlow<List<com.agentdesk.core.persistence.entity.UserHabitEntity>>()
+        override suspend fun getTopHabitsForHour(hourOfDay: Int, limit: Int) = emptyList<com.agentdesk.core.persistence.entity.UserHabitEntity>()
+        override suspend fun getHabit(packageName: String, hourOfDay: Int) = null
+        override suspend fun getHabitForIntent(intent: String, hourOfDay: Int) = null
+        override suspend fun insertOrUpdate(habit: com.agentdesk.core.persistence.entity.UserHabitEntity) = 1L
+        override suspend fun insertAll(habits: List<com.agentdesk.core.persistence.entity.UserHabitEntity>) {}
+        override suspend fun deleteAll() {}
+    }
+
+    @Test
+    fun `when HabitPredictionEngine boosts morning ambiguous query, it resolves to CALENDAR_CREATE and executes`() = runBlocking {
+        toolRunner.nextResult = ToolRunResult("calendar_create", true, "Calendar viewed.")
+        val morningHabitEngine = object : com.agentdesk.agent.habit.HabitPredictionEngine(FakeHabitDaoForGateway()) {
+            override fun currentHourOfDay(): Int = 8
+        }
+
+        val gateway = CommandGateway(
+            ruleEngine = RuleEngine(),
+            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
+            toolRunner = toolRunner,
+            commandDao = commandDao,
+            auditDao = auditDao,
+            redactor = Redactor(),
+            dispatcher = Dispatchers.Unconfined,
+            habitPredictionEngine = morningHabitEngine
+        )
+
+        val outcome = gateway.submitText("what's next")
+
+        assertTrue(outcome is CommandOutcome.Executed)
+        assertEquals("calendar.create_event", commandDao.statusUpdates.single().intentName)
+        assertEquals(1, toolRunner.invoked.size)
+        assertEquals("create_calendar_event", toolRunner.invoked.single().first)
+    }
+
+    @Test
+    fun `when HabitPredictionEngine boosts evening ambiguous query, it resolves to SET_ALARM and executes`() = runBlocking {
+        toolRunner.nextResult = ToolRunResult("set_alarm", true, "Alarm set for 7am.")
+        val eveningHabitEngine = object : com.agentdesk.agent.habit.HabitPredictionEngine(FakeHabitDaoForGateway()) {
+            override fun currentHourOfDay(): Int = 22
+        }
+
+        val gateway = CommandGateway(
+            ruleEngine = RuleEngine(),
+            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
+            toolRunner = toolRunner,
+            commandDao = commandDao,
+            auditDao = auditDao,
+            redactor = Redactor(),
+            dispatcher = Dispatchers.Unconfined,
+            habitPredictionEngine = eveningHabitEngine
+        )
+
+        val outcome = gateway.submitText("bedtime")
+
+        assertTrue(outcome is CommandOutcome.Executed)
+        assertEquals("system.set_alarm", commandDao.statusUpdates.single().intentName)
+        assertEquals(1, toolRunner.invoked.size)
+        assertEquals("set_alarm", toolRunner.invoked.single().first)
+    }
+
+    @Test
+    fun `when HabitPredictionEngine boost produces intent, PolicyEngine primacy is strictly enforced`() = runBlocking {
+        val morningHabitEngine = object : com.agentdesk.agent.habit.HabitPredictionEngine(FakeHabitDaoForGateway()) {
+            override fun currentHourOfDay(): Int = 8
+            override fun boostIntentIfHabitual(query: String, currentHour: Int): com.agentdesk.agent.intent.ClassifiedIntent? {
+                return com.agentdesk.agent.intent.ClassifiedIntent(
+                    intentName = "message.send_sms_silent",
+                    confidence = 0.99f
+                )
+            }
+        }
+
+        val gateway = CommandGateway(
+            ruleEngine = RuleEngine(),
+            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
+            toolRunner = toolRunner,
+            commandDao = commandDao,
+            auditDao = auditDao,
+            redactor = Redactor(),
+            dispatcher = Dispatchers.Unconfined,
+            habitPredictionEngine = morningHabitEngine
+        )
+
+        val outcome = gateway.submitText("what's next")
+
+        assertTrue(outcome is CommandOutcome.Rejected)
+        assertTrue(toolRunner.invoked.isEmpty())
+        assertEquals("REJECTED", commandDao.statusUpdates.single().status)
     }
 }
 

@@ -20,12 +20,54 @@ import javax.inject.Singleton
 class Redactor @Inject constructor() {
 
     fun redact(input: String): String {
-        var result = input
-        result = URL_WITH_CREDS.replace(result, "[URL+CREDS]")
-        result = TOKEN_PATTERN.replace(result, "[TOKEN]")
-        result = CARD_PATTERN.replace(result, "[CARD]")
-        result = EMAIL_PATTERN.replace(result, "[EMAIL]")
-        result = PHONE_PATTERN.replace(result, "[PHONE]")
+        if (input.isEmpty()) return input
+
+        // Fast-path sentinel checks to bypass regex matching when target markers are absent
+        val hasAt = '@' in input
+        val hasColonOrEqual = ':' in input || '=' in input
+        val hasDigit = input.any { it in '0'..'9' }
+
+        if (!hasAt && !hasColonOrEqual && !hasDigit) {
+            return input
+        }
+
+        // Bounded window scanning for extreme inputs to eliminate ReDoS overhead
+        if (input.length > 10_000) {
+            val sb = StringBuilder(input.length)
+            var start = 0
+            val chunkSize = 4000
+            while (start < input.length) {
+                val end = (start + chunkSize).coerceAtMost(input.length)
+                val chunk = input.substring(start, end)
+                sb.append(redactChunk(chunk, hasAt, hasColonOrEqual, hasDigit))
+                start = end
+            }
+            return sb.toString()
+        }
+
+        return redactChunk(input, hasAt, hasColonOrEqual, hasDigit)
+    }
+
+    private fun redactChunk(
+        chunk: String,
+        hasAt: Boolean,
+        hasColonOrEqual: Boolean,
+        hasDigit: Boolean
+    ): String {
+        var result = chunk
+        if (hasColonOrEqual) {
+            result = URL_WITH_CREDS.replace(result, "[URL+CREDS]")
+            result = TOKEN_PATTERN.replace(result, "[TOKEN]")
+        }
+        if (hasDigit) {
+            result = CARD_PATTERN.replace(result, "[CARD]")
+        }
+        if (hasAt) {
+            result = EMAIL_PATTERN.replace(result, "[EMAIL]")
+        }
+        if (hasDigit) {
+            result = PHONE_PATTERN.replace(result, "[PHONE]")
+        }
         return result
     }
 

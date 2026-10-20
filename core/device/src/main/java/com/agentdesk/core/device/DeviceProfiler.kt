@@ -7,8 +7,19 @@ import android.os.PowerManager
 import android.os.StatFs
 import com.agentdesk.core.common.model.DeviceTier
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Real-time battery status model.
+ */
+data class BatteryState(
+    val percent: Int = 0,
+    val isCharging: Boolean = false
+)
 
 /**
  * Profiles device hardware and classifies it into a [DeviceTier].
@@ -50,39 +61,112 @@ open class DeviceProfiler @Inject constructor(
 
     open fun getAvailableStorageMb(): Long = statFs().let { (it.availableBlocksLong * it.blockSizeLong) / (1024 * 1024) }
 
+    open fun getBatteryPercent(): Int {
+        val intent = try {
+            context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+        } catch (_: Exception) {
+            null
+        }
+        val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+        return if (level >= 0 && scale > 0) (level * 100) / scale else 0
+    }
+
+    open fun isCharging(): Boolean {
+        val intent = try {
+            context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+        } catch (_: Exception) {
+            null
+        }
+        val status = intent?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
+        return status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == android.os.BatteryManager.BATTERY_STATUS_FULL
+    }
+
+    open fun isBatteryLow(): Boolean = getBatteryPercent() < 20 && !isCharging()
+
     open fun getThermalStatus(): Int {
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        return powerManager.currentThermalStatus
+        val powerManager = try {
+            context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        } catch (_: Exception) {
+            null
+        }
+        return powerManager?.currentThermalStatus ?: 0
     }
 
     /**
-     * Cold Flow emitting reactive updates of thermal status.
+     * Cold Flow emitting reactive event-driven updates of thermal status.
+     * Registers a listener on Android 10+ (API 29+) with defensive null checks.
      */
-    open fun observeThermalStatus(): kotlinx.coroutines.flow.Flow<Int> = kotlinx.coroutines.flow.flow {
-        while (true) {
-            emit(getThermalStatus())
-            kotlinx.coroutines.delay(2000)
+    open fun observeThermalStatus(): kotlinx.coroutines.flow.Flow<Int> = kotlinx.coroutines.flow.callbackFlow {
+        trySend(getThermalStatus())
+
+        val powerManager = try {
+            context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        } catch (_: Exception) {
+            null
+        }
+
+        if (powerManager == null) {
+            awaitClose { }
+            return@callbackFlow
+        }
+
+        val listener = PowerManager.OnThermalStatusChangedListener { status ->
+            trySend(status)
+        }
+
+        try {
+            powerManager.addThermalStatusListener(listener)
+        } catch (_: Exception) { }
+
+        awaitClose {
+            try {
+                powerManager.removeThermalStatusListener(listener)
+            } catch (_: Exception) { }
         }
     }
 
     /**
-     * Cold Flow emitting reactive updates of battery level and charging state.
+     * Cold Flow emitting reactive event-driven updates of battery level and charging state.
+     * Registers a BroadcastReceiver for Intent.ACTION_BATTERY_CHANGED.
      */
-    open fun observeBatteryState(): kotlinx.coroutines.flow.Flow<Pair<Int, Boolean>> = kotlinx.coroutines.flow.flow {
-        while (true) {
-            val intent = try {
-                context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
-            } catch (_: Exception) {
-                null
+    open fun observeBatteryState(): kotlinx.coroutines.flow.Flow<BatteryState> = kotlinx.coroutines.flow.callbackFlow {
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: android.content.Intent?) {
+                val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+                val percent = if (level >= 0 && scale > 0) (level * 100) / scale else 0
+                val status = intent?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
+                val isCharging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
+                        status == android.os.BatteryManager.BATTERY_STATUS_FULL
+                trySend(BatteryState(percent = percent, isCharging = isCharging))
             }
-            val level = intent?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
-            val scale = intent?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+        }
+
+        val intentFilter = android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+        val sticky = try {
+            context.registerReceiver(receiver, intentFilter)
+        } catch (_: Exception) {
+            null
+        }
+
+        if (sticky != null) {
+            val level = sticky.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+            val scale = sticky.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
             val percent = if (level >= 0 && scale > 0) (level * 100) / scale else 0
-            val status = intent?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val status = sticky.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1)
             val isCharging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING ||
                     status == android.os.BatteryManager.BATTERY_STATUS_FULL
-            emit(Pair(percent, isCharging))
-            kotlinx.coroutines.delay(5000)
+            trySend(BatteryState(percent = percent, isCharging = isCharging))
+        } else {
+            trySend(BatteryState(percent = getBatteryPercent(), isCharging = isCharging()))
+        }
+
+        awaitClose {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) { }
         }
     }
 
@@ -104,16 +188,13 @@ open class DeviceProfiler @Inject constructor(
     ): DeviceTier = Companion.classifyTier(availRamMb, totalRamMb, availStorageMb, cores)
 
     /** Builds a DeviceCapabilitySnapshotEntity representing the current device state. */
-    fun buildSnapshot(): com.agentdesk.core.persistence.entity.DeviceCapabilitySnapshotEntity {
-        val mem = memoryInfo()
-        val totalRam = mem.totalMem / (1024 * 1024)
-        val availRam = mem.availMem / (1024 * 1024)
-        val stat = statFs()
-        val blockSize = stat.blockSizeLong
-        val availStorage = (stat.availableBlocksLong * blockSize) / (1024 * 1024)
-        val totalStorage = (stat.blockCountLong * blockSize) / (1024 * 1024)
-        val cores = getCpuCores()
-        val tier = classifyTier(availRam, totalRam, availStorage, cores)
+    open fun buildSnapshot(): com.agentdesk.core.persistence.entity.DeviceCapabilitySnapshotEntity {
+        val totalRam = try { getTotalRamMb() } catch (_: Exception) { 4096L }
+        val availRam = try { getAvailableRamMb() } catch (_: Exception) { 2048L }
+        val availStorage = try { getAvailableStorageMb() } catch (_: Exception) { 10000L }
+        val totalStorage = try { getTotalStorageMb() } catch (_: Exception) { 64000L }
+        val cores = try { getCpuCores() } catch (_: Exception) { 4 }
+        val tier = try { classifyTier() } catch (_: Exception) { DeviceTier.FULL }
         return com.agentdesk.core.persistence.entity.DeviceCapabilitySnapshotEntity(
             totalRamMb = totalRam,
             availableRamMb = availRam,

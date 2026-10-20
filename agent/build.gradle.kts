@@ -22,12 +22,16 @@ android {
 
 dependencies {
     implementation(project(":core:common"))
+    api(project(":core:device"))
     implementation(project(":core:persistence"))
     implementation(project(":core:security"))
     implementation(project(":core:settings"))
     implementation(libs.android.core.ktx)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    implementation(libs.workmanager)
+    implementation(libs.hilt.work)
+    ksp(libs.hilt.work.compiler)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)

@@ -7,6 +7,8 @@
          Required for AppLaunchTool to query installed apps.
          =================================================== -->
     <queries>
+        <!-- Package visibility for Google AICore on-device LLM service (API 30+) -->
+        <package android:name="com.google.android.aicore" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -50,6 +52,11 @@
     <!-- Biometric (app lock) -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+
+    <!-- Package usage stats (ambient routine and habit modeling) -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <!-- Internet: disabled by default, required for optional cloud feature (future) -->
     <!-- <uses-permission android:name="android.permission.INTERNET" /> -->

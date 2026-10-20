@@ -38,7 +38,8 @@ class IndexWorker @AssistedInject constructor(
     private val agentDeskDatabase: com.agentdesk.core.persistence.db.AgentDeskDatabase,
     private val knowledgeDao: KnowledgeDao,
     private val ftsSearchDao: FtsSearchDao,
-    private val embeddingGenerator: EmbeddingGenerator
+    private val embeddingGenerator: EmbeddingGenerator,
+    private val resourceGovernor: com.agentdesk.core.device.ResourceGovernor? = null
 ) : CoroutineWorker(appContext, params) {
 
     private val chunker = SemanticWindowChunker()
@@ -125,20 +126,29 @@ class IndexWorker @AssistedInject constructor(
 
                 // Fetch inserted chunks to obtain their auto-generated primary key IDs
                 val savedChunks = knowledgeDao.chunksForDocument(documentId)
-                val embeddings = mutableListOf<EmbeddingVectorEntity>()
-                for (sc in savedChunks) {
-                    val vec = embeddingGenerator.generateEmbedding(sc.content)
-                    val blob = FastVectorMath.toByteArray(vec)
-                    embeddings.add(
-                        EmbeddingVectorEntity(
-                            chunkId = sc.id,
-                            vectorBlob = blob,
-                            modelVersion = embeddingGenerator.modelVersion
-                        )
-                    )
-                }
-                if (embeddings.isNotEmpty()) {
-                    knowledgeDao.insertEmbeddings(embeddings)
+                if (savedChunks.isNotEmpty()) {
+                    val batchSize = resourceGovernor?.resolveOptimalBatchSize() ?: 16
+                    val embeddings = mutableListOf<EmbeddingVectorEntity>()
+                    val chunkBatches = savedChunks.chunked(batchSize)
+                    for (batch in chunkBatches) {
+                        val texts = batch.map { it.content }
+                        val vectors = embeddingGenerator.generateEmbeddings(texts)
+                        for (i in batch.indices) {
+                            val sc = batch[i]
+                            val vec = vectors[i]
+                            val blob = FastVectorMath.toByteArray(vec)
+                            embeddings.add(
+                                EmbeddingVectorEntity(
+                                    chunkId = sc.id,
+                                    vectorBlob = blob,
+                                    modelVersion = embeddingGenerator.modelVersion
+                                )
+                            )
+                        }
+                    }
+                    if (embeddings.isNotEmpty()) {
+                        knowledgeDao.insertEmbeddings(embeddings)
+                    }
                 }
             }
 

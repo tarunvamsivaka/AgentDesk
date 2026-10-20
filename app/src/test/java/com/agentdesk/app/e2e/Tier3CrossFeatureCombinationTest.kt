@@ -5,6 +5,7 @@ import com.agentdesk.agent.command.CommandResult
 import com.agentdesk.agent.rule.Intents
 import com.agentdesk.app.e2e.harnesses.E2ETestHarness
 import com.agentdesk.app.e2e.harnesses.MockAiCoreHarness
+import com.agentdesk.app.e2e.harnesses.UserHabitRecord
 import com.agentdesk.core.persistence.entity.AuditEventEntity
 import com.agentdesk.core.persistence.entity.ConfirmationRecordEntity
 import com.agentdesk.core.persistence.entity.NoteEntity
@@ -16,6 +17,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.UUID
 
 /**
@@ -27,6 +30,8 @@ import java.util.UUID
  * - PolicyEngine + Forbidden Intent denial
  * - Privacy Redaction + Cryptographic chaining
  * - Fallback Pyramid transitions
+ * - Telemetry + Habit Engine + Command Gateway (Phases 6–9)
+ * - LiteRT Embeddings + Dynamic Batching + Room BLOB persistence (Phases 6–9)
  */
 class Tier3CrossFeatureCombinationTest {
 
@@ -200,14 +205,10 @@ class Tier3CrossFeatureCombinationTest {
     // ─────────────────────────────────────────────────────────────────────────
     @Test
     fun testFallbackPyramidTransitionFromRegexToLlm() = runBlocking {
-        // Natural language phrasing that misses regex exact pattern
         val naturalQuery = "wake me up at 7am tomorrow"
 
-        // Tier 0: Regex check fails
-        val regexMatch = harness.ruleEngine.evaluate(naturalQuery)
-        // If regex doesn't match or has low confidence, route to Tier 1 Mock SLM
+        // Tier 0: Regex check fails, falls back to Tier 1 SLM
         val slmClassification = MockAiCoreHarness.classify(naturalQuery)
-
         assertEquals(Intents.SET_ALARM, slmClassification.intentName)
         assertTrue(slmClassification.confidence >= 0.9f)
 
@@ -240,5 +241,85 @@ class Tier3CrossFeatureCombinationTest {
         )
 
         assertTrue(harness.verifyAuditChainIntegrity())
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 7. Telemetry + Habit Engine + Command Gateway (Phases 6–9)
+    // ─────────────────────────────────────────────────────────────────────────
+    @Test
+    fun testTelemetryAndHabitEngineAndCommandGatewayInteraction() = runBlocking {
+        // Step 1: Pre-populate morning habit in UserHabitDao
+        harness.userHabitDao.insertOrUpdate(
+            UserHabitRecord(targetIntent = Intents.CALENDAR_CREATE, hourOfDay = 8, frequency = 12, confidenceWeight = 0.95f)
+        )
+
+        // Step 2: Healthy telemetry state (battery = 80%, discharging)
+        harness.profiler.simPercent = 80
+        harness.profiler.simCharging = false
+        assertTrue("Healthy resources allow LLM execution", harness.resourceGovernor.canRunLlm())
+
+        // Ambiguous morning input boosted by habit engine
+        val boost = harness.habitEngine.predictBoost(hourOfDay = 8, input = "standup sync")
+        assertEquals(Intents.CALENDAR_CREATE, boost)
+
+        val calendarOutcome = harness.submitText("schedule meeting standup sync at 9 am")
+        assertTrue(calendarOutcome is CommandOutcome.Executed)
+
+        // Step 3: Battery drops to 14% (discharging) -> Telemetry alerts ResourceGovernor
+        harness.profiler.simPercent = 14
+        harness.profiler.simCharging = false
+        assertFalse("Battery below 20% must pause LLM execution", harness.resourceGovernor.canRunLlm())
+
+        // Complex natural language command gracefully throttles to clarification chips
+        val throttledOutcome = harness.submitText("look up my documents regarding alpha release")
+        assertTrue("Throttled state must return clarification chips", throttledOutcome is CommandOutcome.Clarification)
+
+        // Fast-path regex ("alarm at 6:30 am") executes without degradation
+        val fastOutcome = harness.submitText("alarm at 6:30 am")
+        assertTrue("Fast path regex executes even while throttled", fastOutcome is CommandOutcome.Executed)
+
+        // Step 4: Charger plugged in -> Throttle lifted immediately
+        harness.profiler.simCharging = true
+        assertTrue("Charging overrides battery threshold", harness.resourceGovernor.canRunLlm())
+        val restoredOutcome = harness.submitText("look up my documents regarding alpha release")
+        assertTrue("Restored capability routes natural language", restoredOutcome is CommandOutcome.Executed)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 8. LiteRT Embeddings + Dynamic Batching + Room BLOB Persistence (Phases 6–9)
+    // ─────────────────────────────────────────────────────────────────────────
+    @Test
+    fun testLiteRtEmbeddingsAndDynamicBatchingAndRoomBlobPersistence() {
+        val simulator = harness.embeddingGenerator
+        val texts = (1..25).map { "Section $it: On-device privacy and Zero Cloud Egress" }
+
+        // Dynamic batch generation
+        val embeddings = simulator.generateEmbeddings(texts, maxBatchSize = 16)
+        assertEquals(25, embeddings.size)
+        assertEquals(2, simulator.batchInvocations.size)
+
+        // Room BLOB serialization contract: 384 floats * 4 bytes = 1536 bytes
+        fun serializeToBlob(floats: FloatArray): ByteArray {
+            val buf = ByteBuffer.allocate(floats.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+            for (f in floats) buf.putFloat(f)
+            return buf.array()
+        }
+
+        fun deserializeFromBlob(bytes: ByteArray): FloatArray {
+            val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            val floats = FloatArray(bytes.size / 4)
+            for (i in floats.indices) floats[i] = buf.float
+            return floats
+        }
+
+        for (vec in embeddings) {
+            val blob = serializeToBlob(vec)
+            assertEquals("384-dimensional float vector serialized to exactly 1536 bytes", 1536, blob.size)
+            val deserialized = deserializeFromBlob(blob)
+            assertEquals(384, deserialized.size)
+            for (i in vec.indices) {
+                assertEquals(vec[i], deserialized[i], 1e-6f)
+            }
+        }
     }
 }

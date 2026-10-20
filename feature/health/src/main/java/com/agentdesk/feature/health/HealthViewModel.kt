@@ -18,6 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -62,6 +63,16 @@ class HealthViewModel(
 
     init {
         refresh()
+        scope.launch {
+            deviceProfiler.observeThermalStatus().collect { thermal ->
+                _uiState.update { it.copy(thermalStatus = thermal) }
+            }
+        }
+        scope.launch {
+            deviceProfiler.observeBatteryState().collect { battery ->
+                _uiState.update { it.copy(batteryPercent = battery.percent, isCharging = battery.isCharging) }
+            }
+        }
     }
 
     /** Re-reads all metrics. Safe to call repeatedly (e.g. on screen entry). */
@@ -73,29 +84,13 @@ class HealthViewModel(
                 HealthUiState(
                     freeStorageMb = deviceProfiler.getAvailableStorageMb(),
                     totalStorageMb = deviceProfiler.getTotalStorageMb(),
-                    batteryPercent = readBatteryPercent(),
-                    isCharging = readIsCharging(),
+                    batteryPercent = deviceProfiler.getBatteryPercent(),
+                    isCharging = deviceProfiler.isCharging(),
                     thermalStatus = deviceProfiler.getThermalStatus(),
                     deviceTier = tier
                 )
             }
             _uiState.value = newState
         }
-    }
-
-    private fun readBatteryPercent(): Int = try {
-        val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-        batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 0
-    } catch (_: Exception) {
-        0
-    }
-
-    private fun readIsCharging(): Boolean = try {
-        val sticky = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val status = sticky?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                status == BatteryManager.BATTERY_STATUS_FULL
-    } catch (_: Exception) {
-        false
     }
 }

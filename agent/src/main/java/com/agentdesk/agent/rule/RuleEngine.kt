@@ -13,17 +13,18 @@ import javax.inject.Singleton
 class RuleEngine @Inject constructor() {
 
     fun evaluate(normalizedText: String): RuleResult? {
+        val searchTarget = if (normalizedText.length > 1000) normalizedText.substring(0, 1000) else normalizedText
         for ((intentName, pattern, extractor) in RULES) {
-            val match = pattern.find(normalizedText) ?: continue
+            val match = pattern.find(searchTarget) ?: continue
             val entities = extractor(match)
             val confidence = if (match.value.length.toFloat() / normalizedText.length > 0.6f) 1.0f else 0.7f
             return RuleResult(intentName, entities, confidence)
         }
         // Keyword fallback (partial match at 0.7)
         for ((intentName, keyword) in KEYWORD_FALLBACKS) {
-            if (normalizedText.contains(keyword)) {
+            if (searchTarget.contains(keyword)) {
                 val entities = if (intentName == Intents.WEB_SEARCH) {
-                    val query = normalizedText.substringAfter(keyword).trim().removePrefix("for").trim()
+                    val query = searchTarget.substringAfter(keyword).trim().removePrefix("for").trim()
                     if (query.isNotBlank()) mapOf("query" to query) else emptyMap()
                 } else {
                     emptyMap()
@@ -67,7 +68,7 @@ class RuleEngine @Inject constructor() {
             ),
             Rule(
                 intentName = Intents.SMS_DRAFT,
-                pattern = Regex("""(?:text|message|sms)\s+(.+?)\s+(?:saying|that|:)\s+(.+)"""),
+                pattern = Regex("""(?:text|message|sms)\s+([^:\n\r]+?)\s+(?:saying|that|:)\s+(.+)"""),
                 extractor = { m -> mapOf("contact" to m.groupValues[1].trim(), "body" to m.groupValues[2].trim()) }
             ),
             Rule(

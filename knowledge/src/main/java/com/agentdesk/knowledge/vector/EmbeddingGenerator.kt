@@ -7,6 +7,9 @@ interface EmbeddingGenerator {
     val modelVersion: String
     val dimension: Int
     suspend fun generateEmbedding(text: String): FloatArray
+    suspend fun generateEmbeddings(texts: List<String>): List<FloatArray> {
+        return texts.map { generateEmbedding(it) }
+    }
 }
 
 /**
@@ -20,6 +23,10 @@ class HashEmbeddingGenerator(
     override val dimension: Int = 128,
     override val modelVersion: String = "local-hash-v1"
 ) : EmbeddingGenerator {
+
+    override suspend fun generateEmbeddings(texts: List<String>): List<FloatArray> {
+        return texts.map { generateEmbedding(it) }
+    }
 
     override suspend fun generateEmbedding(text: String): FloatArray {
         val vector = FloatArray(dimension)

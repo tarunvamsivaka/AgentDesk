@@ -2,6 +2,7 @@ package com.agentdesk.feature.health
 
 import android.content.ContextWrapper
 import com.agentdesk.core.common.model.DeviceTier
+import com.agentdesk.core.device.BatteryState
 import com.agentdesk.core.device.DeviceProfiler
 import com.agentdesk.core.persistence.dao.DeviceDao
 import com.agentdesk.core.persistence.entity.DeviceCapabilitySnapshotEntity
@@ -10,6 +11,7 @@ import com.agentdesk.core.persistence.entity.ResourceEventEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -23,10 +25,14 @@ class HealthViewModelTest {
         var availableStorage: Long = 2048L,
         var totalStorage: Long = 16384L,
         var thermal: Int = 1,
-        var tier: DeviceTier = DeviceTier.BALANCED
+        var tier: DeviceTier = DeviceTier.BALANCED,
+        var simBatteryPercent: Int = 0,
+        var simIsCharging: Boolean = false
     ) : DeviceProfiler() {
         var classifyCalled = 0
         var storageCalled = 0
+        val thermalFlow = MutableStateFlow(thermal)
+        val batteryFlow = MutableStateFlow(BatteryState(simBatteryPercent, simIsCharging))
 
         override fun getAvailableStorageMb(): Long {
             storageCalled++
@@ -35,6 +41,10 @@ class HealthViewModelTest {
 
         override fun getTotalStorageMb(): Long = totalStorage
         override fun getThermalStatus(): Int = thermal
+        override fun getBatteryPercent(): Int = simBatteryPercent
+        override fun isCharging(): Boolean = simIsCharging
+        override fun observeThermalStatus(): Flow<Int> = thermalFlow
+        override fun observeBatteryState(): Flow<BatteryState> = batteryFlow
         override fun classifyTier(): DeviceTier {
             classifyCalled++
             return tier
@@ -167,5 +177,38 @@ class HealthViewModelTest {
         assertEquals(false, state.isCharging)
         assertEquals(0, state.thermalStatus)
         assertNull(state.deviceTier)
+    }
+
+    @Test
+    fun reactiveTelemetryFlowsUpdateUiStateWithoutManualRefresh() = runBlocking {
+        val profiler = FakeDeviceProfiler(
+            availableStorage = 2048L,
+            totalStorage = 16384L,
+            thermal = 1,
+            simBatteryPercent = 50,
+            simIsCharging = false
+        )
+        val dao = FakeDeviceDao()
+        val testScope = CoroutineScope(Dispatchers.Default)
+
+        val viewModel = HealthViewModel(
+            deviceProfiler = profiler,
+            deviceDao = dao,
+            context = ContextWrapper(null),
+            ioDispatcher = Dispatchers.Default,
+            coroutineScope = testScope
+        )
+
+        viewModel.refresh().join()
+
+        // Reactively emit new thermal and battery states
+        profiler.thermalFlow.value = 3
+        profiler.batteryFlow.value = BatteryState(percent = 88, isCharging = true)
+
+        kotlinx.coroutines.delay(50)
+
+        assertEquals(3, viewModel.uiState.value.thermalStatus)
+        assertEquals(88, viewModel.uiState.value.batteryPercent)
+        assertEquals(true, viewModel.uiState.value.isCharging)
     }
 }

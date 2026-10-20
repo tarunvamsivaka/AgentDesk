@@ -35,8 +35,9 @@ import com.agentdesk.core.persistence.entity.*
         SharedItemEntity::class,
         ExtractedEntityEntity::class,
         NoteEntity::class,
+        UserHabitEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(AppConverters::class)
@@ -53,4 +54,5 @@ abstract class AgentDeskDatabase : RoomDatabase() {
     abstract fun confirmationDao(): ConfirmationDao
     abstract fun noteDao(): NoteDao
     abstract fun conversationDao(): ConversationDao
+    abstract fun userHabitDao(): UserHabitDao
 }

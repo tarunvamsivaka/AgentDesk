@@ -119,6 +119,8 @@ class HybridRetriever @Inject constructor(
         for (emb in allEmbeddings) {
             val blob = emb.vectorBlob ?: continue
             val chunkVector = FastVectorMath.toFloatArray(blob)
+            // Dimension safety check: guard against dimension mismatch across embedding model versions
+            if (chunkVector.size != queryVector.size) continue
             val score = FastVectorMath.dotProduct(queryVector, chunkVector)
             scored.add(emb.chunkId to score)
         }
