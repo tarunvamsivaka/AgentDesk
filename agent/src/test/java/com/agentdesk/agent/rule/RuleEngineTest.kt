@@ -233,4 +233,36 @@ class RuleEngineTest {
         val result = engine.evaluate("zzzblahblah123nonsense")
         assertTrue(result == null || result.confidence < 0.5f)
     }
+
+    // ─── Custom User Rules ───────────────────────────────────────────────────
+
+    @Test
+    fun `custom user rule matches with highest priority and confidence 1_0`() {
+        val customRule = RuleEngine.CustomRule(
+            triggerPhrase = "flight status",
+            intentName = Intents.APP_OPEN,
+            targetAppOrPackage = "com.airline.app"
+        )
+        engine.registerCustomRule(customRule)
+
+        val result = engine.evaluate("check flight status please")
+        assertNotNull(result)
+        assertEquals(Intents.APP_OPEN, result!!.intentName)
+        assertEquals(1.0f, result.confidence, 1e-6f)
+        assertEquals("com.airline.app", result.entities["app"])
+    }
+
+    @Test
+    fun `custom user rule can be removed`() {
+        val customRule = RuleEngine.CustomRule(
+            id = "test-rule-1",
+            triggerPhrase = "open my notes",
+            intentName = Intents.NOTE_CREATE
+        )
+        engine.registerCustomRule(customRule)
+        assertEquals(1, engine.getCustomRules().size)
+
+        engine.removeCustomRule("test-rule-1")
+        assertEquals(0, engine.getCustomRules().size)
+    }
 }

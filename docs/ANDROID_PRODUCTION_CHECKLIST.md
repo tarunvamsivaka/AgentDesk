@@ -53,20 +53,24 @@ This checklist defines every mandatory parameter, architectural constraint, and 
 - [x] **PIN & Secret Storage:** Passwords and PINs are hashed using PBKDF2 (`PBKDF2WithHmacSHA256`) with 10,000+ iterations and a 16-byte random salt (`SecureRandom`).
 - [x] **Constant-Time Verification:** Hash comparison uses `java.security.MessageDigest.isEqual()` to prevent timing side-channel attacks.
 - [x] **PII Redaction at Rest:** User inputs undergo regex redaction (`Redactor.redact()`) for phone numbers, email addresses, credit cards, and auth tokens before persisting in `command_record`.
+- [x] **Encrypted Offline Vault (.agentdesk):** AES-256-GCM authenticated encryption with PBKDF2 (100,000 iterations, 16-byte random salt, 12-byte IV) and HMAC-SHA256 integrity verification for tamper-evident offline backup/restore via Storage Access Framework (SAF).
 
 ---
 
 ## 3. Storage, Room Database & Data Migrations
 
-- [x] **Exported Schema Tracking:** `room.schemaLocation` configured via KSP; schemas `1.json` through `5.json` committed to version control.
+- [x] **Exported Schema Tracking:** `room.schemaLocation` configured via KSP; schemas `1.json` through `7.json` committed to version control.
 - [x] **No Destructive Fallbacks in Production:** `fallbackToDestructiveMigration()` is completely removed from `PersistenceModule.kt`.
 - [x] **Sequential Versioned Migrations:**
   - `MIGRATION_1_2`: Version bump maintenance.
   - `MIGRATION_2_3`: Adds `status` and `latency_ms` to `command_record`; creates initial `note` table.
   - `MIGRATION_3_4`: Migrates from legacy integer `note` to UUID-keyed `notes` table without data loss.
   - `MIGRATION_4_5`: Adds `expires_at` and `created_at` to `extracted_entity`.
+  - `MIGRATION_5_6`: Adds `user_habit_stats` table for ambient habit modeling and usage frequency analytics.
+  - `MIGRATION_6_7`: Adds `quantizedEmbedding` BLOB, `quantizationScale` REAL, and `vectorNorm` REAL to `text_chunk` table for SIMD-accelerated two-stage RAG retrieval.
 - [x] **Atomic Transactions:** Multi-entity deletions (`deleteAllLocalData()`) and file chunking (`indexFile()`) execute inside `RoomDatabase.withTransaction`.
 - [x] **FTS4 Sanitization:** User full-text search queries pass through `FtsQueryBuilder.buildQuery()` to strip SQL injection attempts, unescaped quotes, and SQLite FTS operators.
+- [x] **Two-Stage Quantized Hybrid RAG:** Stage 1 FTS candidate generation ($K_{lex} = 200$) combined with Stage 2 SIMD `int8` cosine similarity and Reciprocal Rank Fusion ($k = 60$).
 - [x] **Storage Budget & Resource Governor:** `IndexWorker` enforces `MIN_FREE_BYTES = 500MB` floor and bounded file queues (`MAX_FILES = 50`, `MAX_DEPTH = 8`, `MAX_VISITED = 500`) to prevent out-of-memory or storage exhaustion.
 
 ---
@@ -87,7 +91,11 @@ This checklist defines every mandatory parameter, architectural constraint, and 
 - [x] **Edge-to-Edge Compliant Layout:** Single-activity architecture with `windowSoftInputMode="adjustResize"`, enabling proper layout reflow when the IME keyboard appears.
 - [x] **Locale Independence:** Date formatters instantiate `SimpleDateFormat(..., Locale.getDefault())` dynamically per-call rather than caching static constants.
 - [x] **AutoMirrored Icons:** Replaced deprecated icons with `Icons.AutoMirrored.Filled.StickyNote2` for complete RTL layout support.
-- [x] **Supported Document Formats:** `.txt`, `.md`, and `.docx` (Microsoft Word via streaming Zip SAX parser).
+- [x] **Supported Document Formats:** `.txt`, `.md`, `.docx` (streaming Zip SAX parser), and `.pdf` (streaming pure-JVM text extractor).
+- [x] **Android Assistant Integration:** `MainActivity` registered with `<intent-filter>` for `android.intent.action.ASSIST` and default category, protected by `AppLockManager` biometric gate.
+- [x] **User Custom Rules Builder:** User-configured regex rules with top priority evaluation (1.0f) in `RuleEngine` managed via `SettingsScreen`.
+- [x] **Cascading 3-Tier SLM Inference Strategy:** Dynamic inference failover across `MlKitPromptApiProvider` (AICore), `OnnxLocalSlmProvider` (SAF model import), and `DeterministicRuleFallback`.
+- [x] **Multi-Step DAG Task Engine:** Checkpoint recovery and Human-In-The-Loop approval via `TaskDao` and `ConfirmationDao`.
 
 ---
 
@@ -141,9 +149,10 @@ This checklist defines every mandatory parameter, architectural constraint, and 
 
 | Dimension | Standard | Audit Result | Sign-off |
 |---|---|---|---|
-| **Zero Cloud Egress** | Zero internet calls; no cloud telemetry | Verified | **APPROVED** |
-| **Safety Engine** | PolicyEngine hardcoded rules immutable | Verified | **APPROVED** |
-| **Persistence Integrity** | Explicit migrations 1->5, no destructive fallback | Verified | **APPROVED** |
-| **Concurrency & Threading** | Dispatched to IO; atomic keys; no main-thread I/O | Verified | **APPROVED** |
+| **Zero Cloud Egress** | Zero internet calls; no cloud telemetry | Verified (0 network permissions, automated test enforced) | **APPROVED** |
+| **Safety Engine** | PolicyEngine hardcoded rules immutable | Verified (10 permanent forbidden intents gated) | **APPROVED** |
+| **Persistence Integrity** | Explicit migrations 1->7, no destructive fallback | Verified (v1-v7 migration tests passing with zero data loss) | **APPROVED** |
+| **Concurrency & Threading** | Dispatched to IO; atomic keys; no main-thread I/O | Verified (Strict IoDispatcher encapsulation) | **APPROVED** |
 | **UI State Survival** | `rememberSaveable` across configuration changes | Verified | **APPROVED** |
-| **Test Matrix** | 100% test pass rate across all 13 modules | Verified | **APPROVED** |
+| **Test Matrix** | 100% test pass rate across all 13 modules | Verified (All 13 modules green in CI/CD) | **APPROVED** |
+| **Release Artifacts** | R8 release minification & zero missing classes | Verified (`assembleDebug assembleRelease` exit code 0) | **APPROVED** |

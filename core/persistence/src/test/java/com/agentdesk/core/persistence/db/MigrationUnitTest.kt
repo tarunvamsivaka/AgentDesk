@@ -9,7 +9,7 @@ class MigrationUnitTest {
     @Test
     fun testAllMigrationsDefinedInSequence() {
         val migrations = Migrations.ALL_MIGRATIONS
-        assertEquals(5, migrations.size)
+        assertEquals(6, migrations.size)
 
         assertEquals(1, migrations[0].startVersion)
         assertEquals(2, migrations[0].endVersion)
@@ -25,6 +25,9 @@ class MigrationUnitTest {
 
         assertEquals(5, migrations[4].startVersion)
         assertEquals(6, migrations[4].endVersion)
+
+        assertEquals(6, migrations[5].startVersion)
+        assertEquals(7, migrations[5].endVersion)
     }
 
     @Test
@@ -34,5 +37,6 @@ class MigrationUnitTest {
         assertNotNull(Migrations.MIGRATION_3_4)
         assertNotNull(Migrations.MIGRATION_4_5)
         assertNotNull(Migrations.MIGRATION_5_6)
+        assertNotNull(Migrations.MIGRATION_6_7)
     }
 }

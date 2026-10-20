@@ -44,6 +44,7 @@ private class FakeKnowledgeDao : KnowledgeDao {
     override suspend fun findEmbeddingForChunk(chunkId: Long): EmbeddingVectorEntity? = null
     override suspend fun getAllEmbeddingsWithBlobs(): List<EmbeddingVectorEntity> = emptyList()
     override suspend fun findChunksByIds(chunkIds: List<Long>): List<TextChunkEntity> = emptyList()
+    override suspend fun getAllChunksWithQuantizedEmbeddings(): List<TextChunkEntity> = emptyList()
 
     override suspend fun insertSharedItem(item: SharedItemEntity): Long {
         sharedItems.add(item)

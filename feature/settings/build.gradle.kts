@@ -26,6 +26,7 @@ dependencies {
     implementation(project(":core:settings"))
     implementation(project(":core:security"))
     implementation(project(":core:persistence"))
+    implementation(project(":agent"))
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     implementation(platform(libs.compose.bom))

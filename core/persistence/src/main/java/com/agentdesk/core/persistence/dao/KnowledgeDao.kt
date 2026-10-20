@@ -70,6 +70,9 @@ interface KnowledgeDao {
     @Query("SELECT * FROM text_chunk WHERE id IN (:chunkIds)")
     suspend fun findChunksByIds(chunkIds: List<Long>): List<TextChunkEntity>
 
+    @Query("SELECT * FROM text_chunk WHERE quantized_embedding IS NOT NULL")
+    suspend fun getAllChunksWithQuantizedEmbeddings(): List<TextChunkEntity>
+
 
     // ─── Share Bridge ──────────────────────────────────────────────────────────
 

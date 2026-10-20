@@ -12,15 +12,56 @@ import javax.inject.Singleton
 @Singleton
 class RuleEngine @Inject constructor() {
 
+    data class CustomRule(
+        val id: String = java.util.UUID.randomUUID().toString(),
+        val triggerPhrase: String,
+        val intentName: String,
+        val targetAppOrPackage: String? = null,
+        val defaultParameters: Map<String, String> = emptyMap()
+    )
+
+    private val customRules = java.util.concurrent.CopyOnWriteArrayList<CustomRule>()
+
+    fun registerCustomRule(rule: CustomRule) {
+        customRules.removeIf { it.id == rule.id || it.triggerPhrase.equals(rule.triggerPhrase, ignoreCase = true) }
+        customRules.add(0, rule)
+    }
+
+    fun removeCustomRule(id: String) {
+        customRules.removeIf { it.id == id }
+    }
+
+    fun getCustomRules(): List<CustomRule> = customRules.toList()
+
+    fun clearCustomRules() {
+        customRules.clear()
+    }
+
     fun evaluate(normalizedText: String): RuleResult? {
         val searchTarget = if (normalizedText.length > 1000) normalizedText.substring(0, 1000) else normalizedText
+        val lowerTarget = searchTarget.lowercase()
+
+        // 1. Evaluate custom user rules with highest priority
+        for (cr in customRules) {
+            val trigger = cr.triggerPhrase.trim().lowercase()
+            if (trigger.isNotEmpty() && lowerTarget.contains(trigger)) {
+                val entities = cr.defaultParameters.toMutableMap()
+                if (cr.targetAppOrPackage != null) {
+                    entities["app"] = cr.targetAppOrPackage
+                    entities["package"] = cr.targetAppOrPackage
+                }
+                return RuleResult(cr.intentName, entities, 1.0f)
+            }
+        }
+
+        // 2. Evaluate precompiled pattern rules
         for ((intentName, pattern, extractor) in RULES) {
             val match = pattern.find(searchTarget) ?: continue
             val entities = extractor(match)
             val confidence = if (match.value.length.toFloat() / normalizedText.length > 0.6f) 1.0f else 0.7f
             return RuleResult(intentName, entities, confidence)
         }
-        // Keyword fallback (partial match at 0.7)
+        // 3. Keyword fallback (partial match at 0.7)
         for ((intentName, keyword) in KEYWORD_FALLBACKS) {
             if (searchTarget.contains(keyword)) {
                 val entities = if (intentName == Intents.WEB_SEARCH) {

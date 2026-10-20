@@ -348,8 +348,48 @@ data class TextChunkEntity(
     @ColumnInfo(name = "content") val content: String,
     @ColumnInfo(name = "char_offset") val charOffset: Int = 0,
     @ColumnInfo(name = "page_number") val pageNumber: Int = 1,
-    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
-)
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "quantized_embedding", typeAffinity = ColumnInfo.BLOB) val quantizedEmbedding: ByteArray? = null,
+    @ColumnInfo(name = "quantization_scale") val quantizationScale: Float = 1.0f,
+    @ColumnInfo(name = "vector_norm") val vectorNorm: Float = 0.0f
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as TextChunkEntity
+
+        if (id != other.id) return false
+        if (documentId != other.documentId) return false
+        if (chunkIndex != other.chunkIndex) return false
+        if (content != other.content) return false
+        if (charOffset != other.charOffset) return false
+        if (pageNumber != other.pageNumber) return false
+        if (createdAt != other.createdAt) return false
+        if (quantizedEmbedding != null) {
+            if (other.quantizedEmbedding == null) return false
+            if (!quantizedEmbedding.contentEquals(other.quantizedEmbedding)) return false
+        } else if (other.quantizedEmbedding != null) return false
+        if (quantizationScale != other.quantizationScale) return false
+        if (vectorNorm != other.vectorNorm) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = id.hashCode()
+        result = 31 * result + documentId.hashCode()
+        result = 31 * result + chunkIndex
+        result = 31 * result + content.hashCode()
+        result = 31 * result + charOffset
+        result = 31 * result + pageNumber
+        result = 31 * result + createdAt.hashCode()
+        result = 31 * result + (quantizedEmbedding?.contentHashCode() ?: 0)
+        result = 31 * result + quantizationScale.hashCode()
+        result = 31 * result + vectorNorm.hashCode()
+        return result
+    }
+}
 
 // FTS4 virtual table — must mirror TextChunkEntity fields used for search
 @Fts4(contentEntity = TextChunkEntity::class)

@@ -77,6 +77,66 @@ class HybridRetrieverTest {
         assertTrue(results.any { it.chunk.id == 101L })
     }
 
+    @Test
+    fun retrieve_withQuantizedEmbeddings_scoresAccuratelyViaRrf() = runBlocking {
+        val q1 = FastVectorMath.quantizeToInt8(floatArrayOf(0.8f, 0.6f))
+        val q2 = FastVectorMath.quantizeToInt8(floatArrayOf(-0.6f, 0.8f))
+
+        val chunk1 = TextChunkEntity(
+            id = 201, documentId = 1, chunkIndex = 0, content = "Tax return 2025 document",
+            quantizedEmbedding = q1.bytes, quantizationScale = q1.scale, vectorNorm = q1.norm
+        )
+        val chunk2 = TextChunkEntity(
+            id = 202, documentId = 1, chunkIndex = 1, content = "Grocery shopping milk eggs",
+            quantizedEmbedding = q2.bytes, quantizationScale = q2.scale, vectorNorm = q2.norm
+        )
+
+        mockKnowledgeDao.storedChunks[201] = chunk1
+        mockKnowledgeDao.storedChunks[202] = chunk2
+        mockFtsDao.results = listOf(chunk1, chunk2)
+
+        val results = retriever.retrieve("tax return", limit = 2)
+        assertEquals(2, results.size)
+        assertEquals(201L, results[0].chunk.id)
+        assertTrue("Expected chunk 201 to have higher RRF score", results[0].rrfScore > results[1].rrfScore)
+    }
+
+    @Test
+    fun retrieve_benchmark2000QuantizedChunksUnder40ms() = runBlocking {
+        val random = java.util.Random(999)
+        val corpusSize = 2000
+        val dim = 2 // matching MockEmbeddingGenerator dimension
+
+        val mockCorpus = List(corpusSize) { idx ->
+            val v = floatArrayOf(random.nextFloat(), random.nextFloat())
+            val q = FastVectorMath.quantizeToInt8(v)
+            TextChunkEntity(
+                id = idx.toLong() + 1000L,
+                documentId = 1L,
+                chunkIndex = idx,
+                content = "Corpus chunk $idx",
+                quantizedEmbedding = q.bytes,
+                quantizationScale = q.scale,
+                vectorNorm = q.norm
+            )
+        }
+
+        mockCorpus.forEach { mockKnowledgeDao.storedChunks[it.id] = it }
+        // Pre-filter returns 200 candidates
+        mockFtsDao.results = mockCorpus.take(200)
+
+        // Warmup
+        retriever.retrieve("warmup query", limit = 10)
+
+        // Benchmark
+        val startNs = System.nanoTime()
+        val results = retriever.retrieve("benchmark query", limit = 10)
+        val durationMs = (System.nanoTime() - startNs) / 1_000_000.0
+
+        assertEquals(10, results.size)
+        assertTrue("Retrieval of 2000 chunks took ${durationMs}ms, exceeding 40ms SLA", durationMs < 40.0)
+    }
+
     // --- Mock Implementations ---
 
     class MockFtsSearchDao : FtsSearchDao {
@@ -99,6 +159,10 @@ class HybridRetrieverTest {
 
         override suspend fun findChunksByIds(chunkIds: List<Long>): List<TextChunkEntity> {
             return chunkIds.mapNotNull { storedChunks[it] }
+        }
+
+        override suspend fun getAllChunksWithQuantizedEmbeddings(): List<TextChunkEntity> {
+            return storedChunks.values.filter { it.quantizedEmbedding != null }
         }
 
         override fun observeSources(): Flow<List<KnowledgeSourceEntity>> = emptyFlow()
