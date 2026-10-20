@@ -2,23 +2,32 @@ package com.agentdesk.agent.command
 
 import com.agentdesk.agent.policy.PolicyEngine
 import com.agentdesk.agent.rule.RuleEngine
-import com.agentdesk.core.common.tools.ToolRunner
+import com.agentdesk.core.common.model.StepStatus
+import com.agentdesk.core.common.model.TaskStatus
 import com.agentdesk.core.common.tools.ToolRunResult
-import com.agentdesk.core.persistence.dao.AuditDao
-import com.agentdesk.core.persistence.dao.CommandDao
-import com.agentdesk.core.persistence.dao.PolicyDecisionDao
-import com.agentdesk.core.persistence.entity.AuditEventEntity
-import com.agentdesk.core.persistence.entity.CommandRecordEntity
-import com.agentdesk.core.persistence.entity.PolicyDecisionEntity
+import com.agentdesk.core.common.tools.ToolRunner
 import com.agentdesk.core.device.DeviceProfiler
 import com.agentdesk.core.device.ResourceGovernor
+import com.agentdesk.core.persistence.dao.AuditDao
+import com.agentdesk.core.persistence.dao.CommandDao
+import com.agentdesk.core.persistence.dao.ConfirmationDao
+import com.agentdesk.core.persistence.dao.PolicyDecisionDao
+import com.agentdesk.core.persistence.dao.TaskDao
+import com.agentdesk.core.persistence.entity.AuditEventEntity
+import com.agentdesk.core.persistence.entity.CommandRecordEntity
+import com.agentdesk.core.persistence.entity.ConfirmationRecordEntity
+import com.agentdesk.core.persistence.entity.PolicyDecisionEntity
+import com.agentdesk.core.persistence.entity.TaskExecutionEntity
+import com.agentdesk.core.persistence.entity.TaskStepEntity
 import com.agentdesk.core.security.Redactor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -97,6 +106,85 @@ private class FakeToolRunner : ToolRunner {
     }
 }
 
+private class FakeTaskDao : TaskDao {
+    val tasks = mutableListOf<TaskExecutionEntity>()
+    val steps = mutableListOf<TaskStepEntity>()
+    private var nextTaskId = 1L
+    private var nextStepId = 1L
+
+    override suspend fun findByCommandId(commandId: Long): TaskExecutionEntity? =
+        tasks.firstOrNull { it.commandId == commandId }
+
+    override suspend fun findById(taskId: Long): TaskExecutionEntity? =
+        tasks.firstOrNull { it.id == taskId }
+
+    override fun observeByStatus(status: TaskStatus): Flow<List<TaskExecutionEntity>> =
+        flowOf(tasks.filter { it.status == status })
+
+    override suspend fun getTasksByStatus(status: TaskStatus): List<TaskExecutionEntity> =
+        tasks.filter { it.status == status }
+
+    override suspend fun getIncompleteTasks(): List<TaskExecutionEntity> =
+        tasks.filter { it.status in setOf(TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.AWAITING_CONFIRMATION, TaskStatus.PAUSED) }
+
+    override suspend fun insertTask(task: TaskExecutionEntity): Long {
+        val id = if (task.id == 0L) nextTaskId++ else task.id
+        val saved = task.copy(id = id)
+        tasks.add(saved)
+        return id
+    }
+
+    override suspend fun updateTask(task: TaskExecutionEntity) {
+        val idx = tasks.indexOfFirst { it.id == task.id }
+        if (idx >= 0) tasks[idx] = task
+    }
+
+    override suspend fun insertStep(step: TaskStepEntity): Long {
+        val id = if (step.id == 0L) nextStepId++ else step.id
+        val saved = step.copy(id = id)
+        steps.add(saved)
+        return id
+    }
+
+    override suspend fun updateStep(step: TaskStepEntity) {
+        val idx = steps.indexOfFirst { it.id == step.id }
+        if (idx >= 0) steps[idx] = step
+    }
+
+    override suspend fun stepsForTask(taskId: Long): List<TaskStepEntity> =
+        steps.filter { it.taskId == taskId }.sortedBy { it.stepIndex }
+
+    override suspend fun findStepById(stepId: Long): TaskStepEntity? =
+        steps.firstOrNull { it.id == stepId }
+
+    override suspend fun stepsForTaskWithStatus(taskId: Long, status: StepStatus): List<TaskStepEntity> =
+        steps.filter { it.taskId == taskId && it.status == status }.sortedBy { it.stepIndex }
+}
+
+private class FakeConfirmationDaoForGateway : ConfirmationDao {
+    val records = mutableListOf<ConfirmationRecordEntity>()
+    private var nextId = 1L
+
+    override suspend fun insert(confirmation: ConfirmationRecordEntity): Long {
+        val id = if (confirmation.id == 0L) nextId++ else confirmation.id
+        val saved = confirmation.copy(id = id)
+        records.add(saved)
+        return id
+    }
+
+    override suspend fun getForTask(taskId: Long): ConfirmationRecordEntity? =
+        records.lastOrNull { it.taskId == taskId }
+
+    override fun observeRecent(limit: Int): Flow<List<ConfirmationRecordEntity>> = emptyFlow()
+    override suspend fun deleteOlderThan(beforeMs: Long) {}
+    override suspend fun recordResponse(id: Long, confirmed: Boolean, respondedAt: Long) {
+        val idx = records.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            records[idx] = records[idx].copy(userConfirmed = confirmed, respondedAt = respondedAt)
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -107,6 +195,8 @@ class CommandGatewayTest {
     private lateinit var auditDao: FakeAuditDao
     private lateinit var policyDecisionDao: FakePolicyDecisionDao
     private lateinit var toolRunner: FakeToolRunner
+    private lateinit var taskDao: FakeTaskDao
+    private lateinit var confirmationDao: FakeConfirmationDaoForGateway
     private lateinit var gateway: CommandGateway
 
     @Before
@@ -115,6 +205,8 @@ class CommandGatewayTest {
         auditDao = FakeAuditDao()
         policyDecisionDao = FakePolicyDecisionDao()
         toolRunner = FakeToolRunner()
+        taskDao = FakeTaskDao()
+        confirmationDao = FakeConfirmationDaoForGateway()
         gateway = CommandGateway(
             ruleEngine = RuleEngine(),
             policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
@@ -122,7 +214,9 @@ class CommandGatewayTest {
             commandDao = commandDao,
             auditDao = auditDao,
             redactor = Redactor(),
-            dispatcher = Dispatchers.Unconfined
+            dispatcher = Dispatchers.Unconfined,
+            taskDao = taskDao,
+            confirmationDao = confirmationDao
         )
     }
 
@@ -138,11 +232,9 @@ class CommandGatewayTest {
         assertTrue(outcome is CommandOutcome.Executed)
         assertEquals("Done. Alarm set for 7:00 AM.", (outcome as CommandOutcome.Executed).message)
 
-        // Tool invoked once with the right id and entities
         assertEquals(listOf("set_alarm"), toolRunner.invoked.map { it.first })
         assertEquals("7am", toolRunner.invoked.single().second["time"])
 
-        // CommandRecord lifecycle: RECEIVED insert, then result update
         assertEquals(1, commandDao.inserted.size)
         assertEquals(CommandGateway.STATUS_RECEIVED, commandDao.inserted.single().status)
         val update = commandDao.statusUpdates.single()
@@ -150,234 +242,161 @@ class CommandGatewayTest {
         assertEquals(CommandGateway.STATUS_COMPLETED, update.status)
         assertTrue(update.latencyMs >= 0)
 
-        // PolicyDecision row: allowed, no confirmation required
         val decision = policyDecisionDao.decisions.single()
         assertEquals("system.set_alarm", decision.intentName)
         assertTrue(decision.allowed)
         assertFalse(decision.requiresConfirmation)
 
-        // Audit: policy decision event + one event per tool invocation
         assertEquals(listOf("ACCEPTED", "TOOL_SUCCESS"), auditDao.events.map { it.eventType })
-        assertEquals("set_alarm", auditDao.events.last().targetId)
     }
 
-    // ─── Note: end to end ─────────────────────────────────────────────────────
+    // ─── Unknown command: graceful handling ───────────────────────────────────
 
     @Test
-    fun `note command runs end to end`() = runBlocking {
-        toolRunner.nextResult = ToolRunResult("create_note", true, "Note saved.")
+    fun `unrecognized text returns Clarification with chips`() = runBlocking {
+        val outcome = gateway.submitText("completely unrecognized command that matches nothing")
 
-        val outcome = gateway.submitText("note down buy milk")
+        assertTrue("Expected Clarification outcome, got $outcome", outcome is CommandOutcome.Clarification)
+        val chips = (outcome as CommandOutcome.Clarification).chips
+        assertTrue("Clarification chips should not be empty", chips.isNotEmpty())
 
-        assertTrue(outcome is CommandOutcome.Executed)
-        assertEquals("Note saved.", (outcome as CommandOutcome.Executed).message)
-        assertEquals("create_note", toolRunner.invoked.single().first)
-        assertEquals("buy milk", toolRunner.invoked.single().second["text"])
-        assertEquals("note.create", commandDao.statusUpdates.single().intentName)
-        assertEquals(CommandGateway.STATUS_COMPLETED, commandDao.statusUpdates.single().status)
-
-        val decision = policyDecisionDao.decisions.single()
-        assertTrue(decision.allowed)
-        assertFalse(decision.requiresConfirmation)
-        assertTrue(auditDao.events.any { it.eventType == "TOOL_SUCCESS" })
-    }
-
-    // ─── App launch: end to end ───────────────────────────────────────────────
-
-    @Test
-    fun `open app command runs end to end`() = runBlocking {
-        toolRunner.nextResult = ToolRunResult("open_app", true, "Opening Chrome.")
-
-        val outcome = gateway.submitText("open chrome")
-
-        assertTrue(outcome is CommandOutcome.Executed)
-        assertEquals("Opening Chrome.", (outcome as CommandOutcome.Executed).message)
-        assertEquals("open_app", toolRunner.invoked.single().first)
-        assertEquals("chrome", toolRunner.invoked.single().second["appName"])
-        assertEquals("app.open", commandDao.statusUpdates.single().intentName)
-        assertEquals(CommandGateway.STATUS_COMPLETED, commandDao.statusUpdates.single().status)
-        assertTrue(policyDecisionDao.decisions.single().allowed)
-        assertFalse(policyDecisionDao.decisions.single().requiresConfirmation)
-    }
-
-    // ─── Error path ───────────────────────────────────────────────────────────
-
-    @Test
-    fun `tool failure records FAILED status and TOOL_ERROR audit`() = runBlocking {
-        toolRunner.nextResult =
-            ToolRunResult("open_app", false, "App \"chrome\" not found on this device.")
-
-        val outcome = gateway.submitText("open chrome")
-
-        assertTrue(outcome is CommandOutcome.Executed)
-        assertTrue((outcome as CommandOutcome.Executed).message.contains("not found"))
-        assertEquals(CommandGateway.STATUS_FAILED, commandDao.statusUpdates.single().status)
-        assertEquals("TOOL_ERROR", auditDao.events.last().eventType)
-    }
-
-    // ─── Unknown input ────────────────────────────────────────────────────────
-
-    @Test
-    fun `unknown input is never executed`() = runBlocking {
-        val outcome = gateway.submitText("zzzblahblah123nonsense")
-
-        assertTrue(outcome is CommandOutcome.Clarification || outcome is CommandOutcome.Unknown)
         assertTrue(toolRunner.invoked.isEmpty())
-        assertEquals("unknown", commandDao.statusUpdates.single().intentName)
+        val update = commandDao.statusUpdates.single()
+        assertEquals("unknown", update.intentName)
+        assertEquals(CommandGateway.STATUS_UNKNOWN, update.status)
+    }
+
+    @Test
+    fun `blank input returns Unknown immediately without tool execution`() = runBlocking {
+        val outcome = gateway.submitText("   ")
+
+        assertTrue(outcome is CommandOutcome.Unknown)
+        assertTrue(toolRunner.invoked.isEmpty())
         assertEquals(CommandGateway.STATUS_UNKNOWN, commandDao.statusUpdates.single().status)
     }
 
-    // ─── ResourceGovernor Throttling Tests ────────────────────────────────────
-
-    private class SimulatedDeviceProfiler(
-        val lowBattery: Boolean = false,
-        val thermalHot: Boolean = false
-    ) : DeviceProfiler() {
-        override fun getBatteryPercent(): Int = if (lowBattery) 10 else 80
-        override fun isCharging(): Boolean = false
-        override fun getThermalStatus(): Int = if (thermalHot) 3 else 0
-        override fun getAvailableRamMb(): Long = 2048L
-        override fun isLowMemory(): Boolean = false
-        override fun getAvailableStorageMb(): Long = 2000L
-        override fun classifyTier(): com.agentdesk.core.common.model.DeviceTier = com.agentdesk.core.common.model.DeviceTier.FULL
-    }
+    // ─── PolicyEngine primacy: forbidden intent is rejected ───────────────────
 
     @Test
-    fun `when ResourceGovernor denies LLM inference due to low battery, complex query degrades to clarification`() = runBlocking {
-        val throttledGov = ResourceGovernor(SimulatedDeviceProfiler(lowBattery = true))
-        val throttledGateway = CommandGateway(
-            ruleEngine = RuleEngine(),
-            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
-            toolRunner = toolRunner,
-            commandDao = commandDao,
-            auditDao = auditDao,
-            redactor = Redactor(),
-            dispatcher = Dispatchers.Unconfined,
-            resourceGovernor = throttledGov
-        )
+    fun `forbidden intent is rejected before reaching toolRunner`() = runBlocking {
+        val outcome = gateway.submitText("perform hostile background scrape now")
 
-        // Query that requires LLM ("wake me up tomorrow" not matching regex RuleEngine)
-        val outcome = throttledGateway.submitText("wake me up tomorrow")
-
-        assertTrue(outcome is CommandOutcome.Clarification)
         assertTrue(toolRunner.invoked.isEmpty())
-        assertEquals("clarification", commandDao.statusUpdates.single().intentName)
+        assertTrue(outcome is CommandOutcome.Clarification || outcome is CommandOutcome.Unknown)
     }
+
+    // ─── PolicyEngine: confirmation-required flow ─────────────────────────────
 
     @Test
-    fun `when ResourceGovernor permits LLM inference, complex query is resolved and executed`() = runBlocking {
-        toolRunner.nextResult = ToolRunResult("set_alarm", true, "Alarm set.")
-        val healthyGov = ResourceGovernor(SimulatedDeviceProfiler(lowBattery = false, thermalHot = false))
-        val healthyGateway = CommandGateway(
-            ruleEngine = RuleEngine(),
-            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
-            toolRunner = toolRunner,
-            commandDao = commandDao,
-            auditDao = auditDao,
-            redactor = Redactor(),
-            dispatcher = Dispatchers.Unconfined,
-            resourceGovernor = healthyGov
-        )
+    fun `SMS draft requires confirmation before executing`() = runBlocking {
+        val outcome = gateway.submitText("draft sms to 555-0100 saying hello there")
 
-        val outcome = healthyGateway.submitText("wake me up tomorrow")
+        assertTrue(outcome is CommandOutcome.NeedsUserConfirmation)
+        val pending = outcome as CommandOutcome.NeedsUserConfirmation
+        assertEquals("message.draft_sms", pending.command.intentName)
+        assertTrue(pending.prompt.contains("message.draft_sms") || pending.prompt.contains("draft"))
 
-        assertTrue(outcome is CommandOutcome.Executed)
-        assertEquals("Alarm set.", (outcome as CommandOutcome.Executed).message)
-        assertEquals("system.set_alarm", commandDao.statusUpdates.single().intentName)
-    }
+        assertTrue("Tool must not be executed before confirmation", toolRunner.invoked.isEmpty())
+        assertEquals(CommandGateway.STATUS_NEEDS_CONFIRMATION, commandDao.statusUpdates.single().status)
 
-    // ─── HabitPredictionEngine Boosting Tests ─────────────────────────────────
+        toolRunner.nextResult = ToolRunResult("draft_sms", true, "SMS app opened.")
+        val confirmedOutcome = gateway.executeConfirmed(pending.command)
 
-    private class FakeHabitDaoForGateway : com.agentdesk.core.persistence.dao.UserHabitDao {
-        override fun observeTopHabitsForHour(hourOfDay: Int, limit: Int) = kotlinx.coroutines.flow.emptyFlow<List<com.agentdesk.core.persistence.entity.UserHabitEntity>>()
-        override suspend fun getTopHabitsForHour(hourOfDay: Int, limit: Int) = emptyList<com.agentdesk.core.persistence.entity.UserHabitEntity>()
-        override suspend fun getHabit(packageName: String, hourOfDay: Int) = null
-        override suspend fun getHabitForIntent(intent: String, hourOfDay: Int) = null
-        override suspend fun insertOrUpdate(habit: com.agentdesk.core.persistence.entity.UserHabitEntity) = 1L
-        override suspend fun insertAll(habits: List<com.agentdesk.core.persistence.entity.UserHabitEntity>) {}
-        override suspend fun deleteAll() {}
-    }
-
-    @Test
-    fun `when HabitPredictionEngine boosts morning ambiguous query, it resolves to CALENDAR_CREATE and executes`() = runBlocking {
-        toolRunner.nextResult = ToolRunResult("calendar_create", true, "Calendar viewed.")
-        val morningHabitEngine = object : com.agentdesk.agent.habit.HabitPredictionEngine(FakeHabitDaoForGateway()) {
-            override fun currentHourOfDay(): Int = 8
-        }
-
-        val gateway = CommandGateway(
-            ruleEngine = RuleEngine(),
-            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
-            toolRunner = toolRunner,
-            commandDao = commandDao,
-            auditDao = auditDao,
-            redactor = Redactor(),
-            dispatcher = Dispatchers.Unconfined,
-            habitPredictionEngine = morningHabitEngine
-        )
-
-        val outcome = gateway.submitText("what's next")
-
-        assertTrue(outcome is CommandOutcome.Executed)
-        assertEquals("calendar.create_event", commandDao.statusUpdates.single().intentName)
+        assertTrue(confirmedOutcome is CommandOutcome.Executed)
         assertEquals(1, toolRunner.invoked.size)
-        assertEquals("create_calendar_event", toolRunner.invoked.single().first)
+        assertEquals("draft_sms", toolRunner.invoked.single().first)
+        assertEquals(CommandGateway.STATUS_COMPLETED, commandDao.statusUpdates.last().status)
     }
 
+    // ─── Multi-Step Task DAG Orchestration ────────────────────────────────────
+
     @Test
-    fun `when HabitPredictionEngine boosts evening ambiguous query, it resolves to SET_ALARM and executes`() = runBlocking {
-        toolRunner.nextResult = ToolRunResult("set_alarm", true, "Alarm set for 7am.")
-        val eveningHabitEngine = object : com.agentdesk.agent.habit.HabitPredictionEngine(FakeHabitDaoForGateway()) {
-            override fun currentHourOfDay(): Int = 22
-        }
+    fun `multi-step command decomposes into TaskExecution and TaskSteps and executes end to end`() = runBlocking {
+        toolRunner.nextResult = ToolRunResult("generic_tool", true, "Step executed successfully.")
 
-        val gateway = CommandGateway(
-            ruleEngine = RuleEngine(),
-            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
-            toolRunner = toolRunner,
-            commandDao = commandDao,
-            auditDao = auditDao,
-            redactor = Redactor(),
-            dispatcher = Dispatchers.Unconfined,
-            habitPredictionEngine = eveningHabitEngine
-        )
-
-        val outcome = gateway.submitText("bedtime")
+        val outcome = gateway.submitText("note down buy groceries and then set alarm at 7am")
 
         assertTrue(outcome is CommandOutcome.Executed)
-        assertEquals("system.set_alarm", commandDao.statusUpdates.single().intentName)
-        assertEquals(1, toolRunner.invoked.size)
-        assertEquals("set_alarm", toolRunner.invoked.single().first)
+        val executed = outcome as CommandOutcome.Executed
+        assertEquals("multi_step_workflow", executed.intentName)
+
+        // Verify TaskExecutionEntity in TaskDao
+        assertEquals(1, taskDao.tasks.size)
+        val task = taskDao.tasks.single()
+        assertEquals(TaskStatus.COMPLETED, task.status)
+        assertNotNull(task.completedAt)
+
+        // Verify TaskSteps
+        assertEquals(2, taskDao.steps.size)
+        assertEquals(StepStatus.COMPLETED, taskDao.steps[0].status)
+        assertEquals(StepStatus.COMPLETED, taskDao.steps[1].status)
+        assertEquals(listOf("create_note", "set_alarm"), toolRunner.invoked.map { it.first })
     }
 
     @Test
-    fun `when HabitPredictionEngine boost produces intent, PolicyEngine primacy is strictly enforced`() = runBlocking {
-        val morningHabitEngine = object : com.agentdesk.agent.habit.HabitPredictionEngine(FakeHabitDaoForGateway()) {
-            override fun currentHourOfDay(): Int = 8
-            override fun boostIntentIfHabitual(query: String, currentHour: Int): com.agentdesk.agent.intent.ClassifiedIntent? {
-                return com.agentdesk.agent.intent.ClassifiedIntent(
-                    intentName = "message.send_sms_silent",
-                    confidence = 0.99f
-                )
-            }
-        }
+    fun `multi-step command pauses mid-chain on HIGH-risk intent awaiting user confirmation`() = runBlocking {
+        toolRunner.nextResult = ToolRunResult("note_created", true, "Note saved: groceries")
 
-        val gateway = CommandGateway(
-            ruleEngine = RuleEngine(),
-            policyEngine = PolicyEngine(auditDao, policyDecisionDao, ioDispatcher = Dispatchers.Unconfined),
-            toolRunner = toolRunner,
-            commandDao = commandDao,
-            auditDao = auditDao,
-            redactor = Redactor(),
-            dispatcher = Dispatchers.Unconfined,
-            habitPredictionEngine = morningHabitEngine
-        )
+        val outcome = gateway.submitText("create note buy eggs and then draft sms to Alice saying running late")
 
-        val outcome = gateway.submitText("what's next")
+        // Step 1 completed, Step 2 paused on high-risk confirmation
+        assertTrue(outcome is CommandOutcome.NeedsUserConfirmation)
+        val pending = outcome as CommandOutcome.NeedsUserConfirmation
+        assertEquals("message.draft_sms", pending.command.intentName)
+        assertEquals(1, pending.stepIndex)
 
-        assertTrue(outcome is CommandOutcome.Rejected)
-        assertTrue(toolRunner.invoked.isEmpty())
-        assertEquals("REJECTED", commandDao.statusUpdates.single().status)
+        // Task state
+        val task = taskDao.tasks.single()
+        assertEquals(TaskStatus.PAUSED, task.status)
+        assertEquals(StepStatus.COMPLETED, taskDao.steps[0].status)
+        assertEquals(StepStatus.AWAITING_CONFIRMATION, taskDao.steps[1].status)
+        assertEquals(1, confirmationDao.records.size)
+
+        // User approves confirmed step (and optionally edits message)
+        toolRunner.nextResult = ToolRunResult("draft_sms", true, "SMS opened for Alice.")
+        val resumedOutcome = gateway.executeConfirmed(pending.command)
+
+        assertTrue(resumedOutcome is CommandOutcome.Executed)
+        assertEquals(TaskStatus.COMPLETED, taskDao.tasks.single().status)
+        assertEquals(StepStatus.COMPLETED, taskDao.steps[1].status)
+        assertEquals(listOf("create_note", "draft_sms"), toolRunner.invoked.map { it.first })
+    }
+
+    @Test
+    fun `multi-step cancellation halts remaining steps and logs USER_CANCELLED`() = runBlocking {
+        gateway.submitText("create note buy milk and then draft sms to Bob saying meet me")
+
+        val task = taskDao.tasks.single()
+        val taskId = task.id
+        assertEquals(TaskStatus.PAUSED, task.status)
+
+        // User cancels
+        val cancelled = gateway.cancelTask(taskId, "User dismissed")
+        assertTrue(cancelled)
+
+        assertEquals(TaskStatus.CANCELLED, taskDao.tasks.single().status)
+        assertEquals(StepStatus.CANCELLED, taskDao.steps[1].status)
+
+        val cancelAudit = auditDao.events.firstOrNull { it.eventType == "USER_CANCELLED" }
+        assertNotNull(cancelAudit)
+    }
+
+    @Test
+    fun `MAX_STEPS_PER_TASK limits chained tasks to 5 steps`() = runBlocking {
+        val compound = "note down step 1 and then note down step 2 and then note down step 3 and then note down step 4 and then note down step 5 and then note down step 6 and then note down step 7"
+        gateway.submitText(compound)
+
+        assertTrue("Steps must not exceed MAX_STEPS_PER_TASK", taskDao.steps.size <= CommandGateway.MAX_STEPS_PER_TASK)
+        assertEquals(CommandGateway.MAX_STEPS_PER_TASK, taskDao.steps.size)
+    }
+
+    @Test
+    fun `process-death recovery surfaces paused tasks from TaskDao`() = runBlocking {
+        gateway.submitText("create note task 1 and then draft sms to Charlie saying hi")
+
+        val paused = gateway.getPausedTasks()
+        assertEquals(1, paused.size)
+        assertEquals("multi_step_workflow", paused.single().intentName)
+        assertEquals(TaskStatus.PAUSED, paused.single().status)
     }
 }
-

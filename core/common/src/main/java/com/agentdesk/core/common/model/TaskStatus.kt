@@ -7,6 +7,7 @@ enum class TaskStatus {
     PENDING,
     RUNNING,
     AWAITING_CONFIRMATION,
+    PAUSED,
     COMPLETED,
     FAILED,
     CANCELLED,

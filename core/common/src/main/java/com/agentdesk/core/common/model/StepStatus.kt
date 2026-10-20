@@ -6,7 +6,9 @@ package com.agentdesk.core.common.model
 enum class StepStatus {
     PENDING,
     RUNNING,
+    AWAITING_CONFIRMATION,
     COMPLETED,
     FAILED,
+    CANCELLED,
     SKIPPED
 }

@@ -14,6 +14,8 @@ import com.agentdesk.core.common.model.RiskLevel
  * @param source Where this command originated.
  * @param riskLevel Risk classification from the PolicyEngine.
  * @param requiresConfirmation Whether the user must confirm before execution.
+ * @param taskId Optional parent TaskExecutionEntity ID for multi-step DAG workflows.
+ * @param stepIndex Index of this step within the multi-step DAG workflow.
  */
 data class Command(
     val rawInput: String,
@@ -23,7 +25,9 @@ data class Command(
     val confidence: Float = 0f,
     val source: CommandSource = CommandSource.USER_CHAT,
     val riskLevel: RiskLevel = RiskLevel.LOW,
-    val requiresConfirmation: Boolean = false
+    val requiresConfirmation: Boolean = false,
+    val taskId: Long? = null,
+    val stepIndex: Int = 0
 )
 
 /**

@@ -68,7 +68,7 @@ class RuleEngine @Inject constructor() {
             ),
             Rule(
                 intentName = Intents.NOTE_CREATE,
-                pattern = Regex("""(?:note|write|jot|remember)\s+(?:down\s+)?(.+)"""),
+                pattern = Regex("""(?:create\s+note|take\s+note|note|write|jot|remember)\s+(?:down\s+)?(.+)"""),
                 extractor = { m -> mapOf("text" to m.groupValues[1].trim()) }
             ),
             Rule(
@@ -83,8 +83,13 @@ class RuleEngine @Inject constructor() {
             ),
             Rule(
                 intentName = Intents.SMS_DRAFT,
-                pattern = Regex("""(?:text|message|sms)\s+([^:\n\r]+?)\s+(?:saying|that|:)\s+(.+)"""),
+                pattern = Regex("""(?:draft\s+)?(?:text|message|sms)(?:\s+to)?\s+([^:\n\r]+?)\s+(?:saying|that|:)\s+(.+)"""),
                 extractor = { m -> mapOf("contact" to m.groupValues[1].trim(), "body" to m.groupValues[2].trim()) }
+            ),
+            Rule(
+                intentName = Intents.SMS_DRAFT,
+                pattern = Regex("""(?:draft\s+)?(?:text|message|sms)\s+to\s+([^:\n\r]+)"""),
+                extractor = { m -> mapOf("contact" to m.groupValues[1].trim()) }
             ),
             Rule(
                 intentName = Intents.WEB_SEARCH,
@@ -106,8 +111,6 @@ class RuleEngine @Inject constructor() {
                 pattern = Regex("""(?:call|dial|ring)\s+(.+)"""),
                 extractor = { m -> mapOf("contact" to m.groupValues[1].trim()) }
             ),
-            // NAVIGATE_MAP comes before the generic APP_OPEN catch-all so
-            // navigation phrasings are never swallowed by open/launch/start (BUG-012)
             Rule(
                 intentName = Intents.NAVIGATE_MAP,
                 pattern = Regex("""(?:navigate|directions|take me)\s+(?:to\s+)?(.+)"""),

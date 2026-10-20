@@ -3,9 +3,13 @@ package com.agentdesk.agent.intent
 import android.content.Context
 import com.agentdesk.agent.prompt.PromptPrefixCatalog
 import com.agentdesk.agent.rule.Intents
+import com.agentdesk.core.device.DeviceProfiler
+import com.agentdesk.core.device.ResourceGovernor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * 4-Tier Fallback Hierarchy for on-device natural language classification:
@@ -43,11 +47,92 @@ interface OnDeviceLlmManager {
 }
 
 /**
- * Default implementation of OnDeviceLlmManager executing the deterministic 4-tier fallback pyramid:
- * Tier 0: Regex RuleEngine (<5ms)
- * Tier 1: Gemini Nano / AICore (~500ms, accelerated to <150ms via prompt prefix caching)
- * Tier 2: LiteRT fallback
- * Tier 3: Clarification action chips when uncertain or thermally throttled
+ * Dynamic cascading orchestrator for on-device SLM inference.
+ * Evaluates available providers in strict hierarchical priority:
+ * 1. Tier 1: Flagship AICore via [MlKitPromptApiProvider]
+ * 2. Tier 2: Universal 4-bit local SLM via [OnnxLocalSlmProvider]
+ * 3. Tier 3: Zero-overhead deterministic fallback via [DeterministicRuleFallback]
+ * Governed at runtime by [ResourceGovernor] and [DeviceProfiler].
+ */
+@Singleton
+class CascadingOnDeviceLlmManager @Inject constructor(
+    private val mlKitProvider: MlKitPromptApiProvider,
+    private val onnxProvider: OnnxLocalSlmProvider,
+    private val ruleFallback: DeterministicRuleFallback,
+    private val resourceGovernor: ResourceGovernor? = null,
+    private val profiler: DeviceProfiler? = null
+) : OnDeviceLlmManager {
+
+    override val isModelAvailable: Boolean = true
+
+    override val currentExecutionTier: ModelExecutionTier
+        get() {
+            return if (mlKitProvider.isAiCoreInstalled()) {
+                ModelExecutionTier.TIER_1_AICORE
+            } else {
+                ModelExecutionTier.TIER_2_LITERT
+            }
+        }
+
+    override suspend fun warmup(): Boolean {
+        if (mlKitProvider.isAvailable()) {
+            mlKitProvider.warmup()
+        }
+        return true
+    }
+
+    override suspend fun classifyIntent(
+        userInput: String,
+        thermalThrottled: Boolean
+    ): ClassifiedIntent {
+        val normalized = userInput.trim()
+
+        // Tier 3: Thermal throttling or blank input degradation
+        if (thermalThrottled || normalized.isBlank()) {
+            return ClassifiedIntent(
+                intentName = "clarification",
+                confidence = 0.2f,
+                clarificationChips = listOf("Search Library", "Create Note", "Check Device Health")
+            )
+        }
+
+        // Governor check: if thermal/battery/RAM constrained, skip heavy inference and use fallback
+        val canRunLlm = resourceGovernor == null || resourceGovernor.canRunLlm()
+        if (!canRunLlm) {
+            return ruleFallback.classifyIntent(normalized)
+        }
+
+        // Tier 1: ML Kit Prompt API (AICore)
+        if (mlKitProvider.isAvailable()) {
+            val tier1 = mlKitProvider.classifyIntent(normalized)
+            if (tier1 != null && tier1.intentName != "unknown" && tier1.confidence >= 0.5f) {
+                return tier1
+            }
+        }
+
+        // Tier 2: ONNX / LiteRT local SLM
+        if (onnxProvider.isAvailable()) {
+            val tier2 = onnxProvider.classifyIntent(normalized)
+            if (tier2 != null && tier2.intentName != "unknown" && tier2.confidence >= 0.5f) {
+                return tier2
+            }
+        }
+
+        // Tier 3: Deterministic Rule Fallback
+        return ruleFallback.classifyIntent(normalized)
+    }
+
+    override fun close() {
+        kotlinx.coroutines.runBlocking {
+            mlKitProvider.releaseResources()
+            onnxProvider.releaseResources()
+            ruleFallback.releaseResources()
+        }
+    }
+}
+
+/**
+ * Default implementation of OnDeviceLlmManager executing the deterministic 4-tier fallback pyramid.
  */
 open class DefaultOnDeviceLlmManager(
     private val context: Context? = null
@@ -153,10 +238,6 @@ interface PromptApiEngine {
 
 /**
  * Production-ready AI Core LLM Classifier.
- * Detects Google AICore package availability (`com.google.android.aicore`),
- * verifies model readiness via [FeatureStatus], pre-warms prompt prefix KV cache
- * using [PromptPrefixCatalog.SYSTEM_PROMPT_PREFIX] (>600 tokens), and routes
- * through the deterministic 4-tier fallback pyramid with structured intent parsing.
  */
 class AiCoreLlmClassifier(
     private val context: Context? = null,
@@ -177,11 +258,6 @@ class AiCoreLlmClassifier(
     override val currentExecutionTier: ModelExecutionTier
         get() = if (isAiCoreInstalled()) ModelExecutionTier.TIER_1_AICORE else fallbackManager.currentExecutionTier
 
-    /**
-     * Genuine dual-check package verification:
-     * 1. Inspects package presence via PackageManager.
-     * 2. Asserts application package is enabled.
-     */
     fun isAiCoreInstalled(): Boolean {
         if (context == null) return false
         return try {
@@ -198,17 +274,11 @@ class AiCoreLlmClassifier(
         return FeatureStatus.AVAILABLE
     }
 
-    /**
-     * Verifies that the prompt prefix KV cache meets the >600 token caching requirement.
-     */
     fun verifyPromptPrefixTokens(): Boolean {
         val tokens = PromptPrefixCatalog.estimateTokenCount()
         return tokens >= 600
     }
 
-    /**
-     * Pre-compiles the static prompt prefix (>600 tokens) for KV cache acceleration in NPU memory.
-     */
     override suspend fun warmup(): Boolean {
         return if (isAiCoreInstalled()) {
             val tokens = PromptPrefixCatalog.estimateTokenCount()
@@ -225,9 +295,6 @@ class AiCoreLlmClassifier(
         }
     }
 
-    /**
-     * Parses structured output (JSON or structured key-value text) generated by AICore / Gemini Nano.
-     */
     fun parseStructuredResponse(rawOutput: String): ClassifiedIntent {
         val trimmed = rawOutput.trim()
         if (trimmed.isBlank()) {
@@ -331,20 +398,12 @@ class AiCoreLlmClassifier(
         )
     }
 
-    /**
-     * Strict 4-tier fallback pyramid:
-     * - Tier 3: Immediate degradation when thermal throttled or empty.
-     * - Tier 1: Real AICore / Prompt API structured execution.
-     * - Tier 2: LiteRT / Local SLM semantic classifier fallback.
-     * - Tier 3: Low-confidence degradation to clarification action chips.
-     */
     override suspend fun classifyIntent(
         userInput: String,
         thermalThrottled: Boolean
     ): ClassifiedIntent {
         val normalized = userInput.trim()
 
-        // Tier 3: Immediate degradation when thermal throttled or empty
         if (thermalThrottled || normalized.isBlank()) {
             return ClassifiedIntent(
                 intentName = "clarification",
@@ -353,7 +412,6 @@ class AiCoreLlmClassifier(
             )
         }
 
-        // Tier 1: Real AICore / Prompt API Execution when available
         if (isAiCoreInstalled() && checkFeatureStatus() == FeatureStatus.AVAILABLE) {
             try {
                 val rawStructured = promptEngine?.generateStructuredIntent(normalized)
@@ -368,13 +426,11 @@ class AiCoreLlmClassifier(
             }
         }
 
-        // Tier 2: LiteRT / Local SLM Semantic Classifier Fallback
         val tier2Result = fallbackManager.classifyIntent(normalized, thermalThrottled = false)
         if (tier2Result.confidence >= 0.5f && tier2Result.intentName != "unknown") {
             return tier2Result
         }
 
-        // Tier 3: Clarification chips when ambiguous or low confidence
         return ClassifiedIntent(
             intentName = "unknown",
             confidence = tier2Result.confidence,

@@ -143,6 +143,17 @@ class ChatViewModel(
         }
     }
 
+    fun onUpdatePendingEntities(updatedEntities: Map<String, String>) {
+        _uiState.update { state ->
+            val pending = state.pendingConfirmation ?: return@update state
+            state.copy(
+                pendingConfirmation = pending.copy(
+                    command = pending.command.copy(entities = updatedEntities)
+                )
+            )
+        }
+    }
+
     fun onConfirmAction() {
         val pending = _uiState.value.pendingConfirmation ?: return
         _uiState.update { it.copy(pendingConfirmation = null, isProcessing = true) }
@@ -174,6 +185,11 @@ class ChatViewModel(
             pending?.let {
                 // Record user cancellation in confirmation DAO
                 confirmationDao.recordResponse(it.confirmationId, confirmed = false)
+                // If this is part of a multi-step DAG task, cancel the task in CommandGateway
+                val taskId = it.command.taskId
+                if (taskId != null && taskId > 0L) {
+                    commandGateway.cancelTask(taskId, "User dismissed confirmation")
+                }
                 // Mandatory audit logging for user dismissal
                 auditDao.insert(
                     AuditEventEntity(
