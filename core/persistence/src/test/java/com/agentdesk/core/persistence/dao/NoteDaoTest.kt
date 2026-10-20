@@ -27,6 +27,21 @@ class NoteDaoTest {
             _notes.value = stored.sortedByDescending { it.createdAt }
         }
 
+        override suspend fun update(note: NoteEntity) {
+            val index = stored.indexOfFirst { it.id == note.id }
+            if (index != -1) {
+                stored[index] = note
+                _notes.value = stored.sortedByDescending { it.createdAt }
+            }
+        }
+
+        override suspend fun getLatest(): NoteEntity? =
+            stored.maxByOrNull { it.createdAt }
+
+        override suspend fun findByTitle(title: String): NoteEntity? =
+            stored.filter { it.title.contains(title, ignoreCase = true) }
+                .maxByOrNull { it.createdAt }
+
         override fun observeAll(): Flow<List<NoteEntity>> = _notes
 
         override suspend fun search(query: String): List<NoteEntity> =
@@ -58,5 +73,19 @@ class NoteDaoTest {
     fun `observeAll starts empty for a fresh dao`() = runBlocking {
         val dao = FakeNoteDao()
         assertEquals(emptyList<NoteEntity>(), dao.observeAll().first())
+    }
+
+    @Test
+    fun `getLatest and findByTitle and update work as expected`() = runBlocking {
+        val dao = FakeNoteDao()
+        dao.insert(note("a", "Grocery List", "milk, eggs", createdAt = 1_000L))
+        dao.insert(note("b", "Meeting Notes", "discuss roadmap", createdAt = 2_000L))
+
+        assertEquals("b", dao.getLatest()?.id)
+        assertEquals("a", dao.findByTitle("grocery")?.id)
+
+        dao.update(note("a", "Grocery List", "milk, eggs, bread", createdAt = 1_000L))
+        val updated = dao.findByTitle("Grocery")
+        assertEquals("milk, eggs, bread", updated?.body)
     }
 }

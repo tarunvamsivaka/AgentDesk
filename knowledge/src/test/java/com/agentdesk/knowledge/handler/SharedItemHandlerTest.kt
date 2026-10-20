@@ -1,6 +1,7 @@
 package com.agentdesk.knowledge.handler
 
 import android.content.Intent
+import android.net.Uri
 import com.agentdesk.core.common.model.IndexStatus
 import com.agentdesk.core.persistence.dao.KnowledgeDao
 import com.agentdesk.core.persistence.entity.DocumentEntity
@@ -18,6 +19,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.File
 
 private class FakeKnowledgeDao : KnowledgeDao {
     val sharedItems = mutableListOf<SharedItemEntity>()
@@ -104,5 +106,60 @@ class SharedItemHandlerTest {
         assertEquals("test@example.com", typeMap["EMAIL"]?.first()?.value)
         assertEquals("https://agentdesk.ai", typeMap["URL"]?.first()?.value)
         assertEquals("1Z9999999999999999", typeMap["TRACKING_ID"]?.first()?.value)
+    }
+
+    @Test(expected = SecurityException::class)
+    fun testRejectFileUriScheme() = runBlocking {
+        val intent = object : Intent(ACTION_SEND) {
+            override fun getStringExtra(name: String?): String? {
+                if (name == "EXTRA_URI_STRING") return "file:///etc/passwd"
+                return null
+            }
+        }
+        handler.handle(intent)
+    }
+
+    @Test
+    fun testIngestSecurityValidatorRejectsTraversalAndPrivateDirs() {
+        // file:// URI must be rejected
+        org.junit.Assert.assertFalse(
+            IngestSecurityValidator.isUriStringSafe(
+                uriString = "file:///data/local/tmp/exploit.txt"
+            )
+        )
+
+        // Traversal .. must be rejected
+        org.junit.Assert.assertFalse(
+            IngestSecurityValidator.isUriStringSafe(
+                uriString = "content://com.agentdesk.provider/../../databases/agentdesk.db"
+            )
+        )
+
+        // Databases / private path must be rejected
+        org.junit.Assert.assertFalse(
+            IngestSecurityValidator.isUriStringSafe(
+                uriString = "content://com.agentdesk.provider/data/data/com.agentdesk/databases/agentdesk.db"
+            )
+        )
+
+        // Normal external content URI must be allowed
+        org.junit.Assert.assertTrue(
+            IngestSecurityValidator.isUriStringSafe(
+                uriString = "content://media/external/file/12345"
+            )
+        )
+
+        // Magic bytes validation
+        val docxFile = File.createTempFile("test_docx", ".docx").apply {
+            writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x00, 0x00))
+            deleteOnExit()
+        }
+        org.junit.Assert.assertTrue(IngestSecurityValidator.verifyMagicBytes(docxFile))
+
+        val binaryFile = File.createTempFile("bad", ".bin").apply {
+            writeBytes(byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x01, 0x02))
+            deleteOnExit()
+        }
+        org.junit.Assert.assertFalse(IngestSecurityValidator.verifyMagicBytes(binaryFile))
     }
 }

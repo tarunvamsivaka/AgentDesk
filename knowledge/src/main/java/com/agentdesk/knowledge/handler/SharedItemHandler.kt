@@ -1,9 +1,13 @@
 package com.agentdesk.knowledge.handler
 
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import com.agentdesk.core.persistence.dao.KnowledgeDao
 import com.agentdesk.core.persistence.entity.ExtractedEntityEntity
 import com.agentdesk.core.persistence.entity.SharedItemEntity
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -18,16 +22,46 @@ import javax.inject.Singleton
 @Singleton
 class SharedItemHandler @Inject constructor(
     private val knowledgeDao: KnowledgeDao,
-    private val entityExtractor: EntityExtractor
+    private val entityExtractor: EntityExtractor,
+    @ApplicationContext private val context: Context? = null
 ) {
     suspend fun handle(intent: Intent) = withContext(Dispatchers.IO) {
         val mimeType = intent.type ?: "text/plain"
         val rawText: String? = intent.getStringExtra(Intent.EXTRA_TEXT)
-        @Suppress("DEPRECATION")
-        val uri: android.net.Uri? = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
-        } else {
+        val rawUriString: String? = intent.getStringExtra("EXTRA_URI_STRING") ?: intent.dataString
+
+        val uri: Uri? = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            }
+        } catch (_: Throwable) {
+            @Suppress("DEPRECATION")
             intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        } ?: intent.data
+
+        // Security check via raw string (for unit testability & explicit URI strings)
+        if (rawUriString != null) {
+            if (rawUriString.startsWith("file:", ignoreCase = true)) {
+                throw SecurityException("file:// URIs are rejected for security.")
+            }
+            if (!IngestSecurityValidator.isUriStringSafe(context, rawUriString)) {
+                throw SecurityException("URI is insecure, traversal detected, or points to private storage.")
+            }
+        }
+
+        // Security check: Confused Deputy & Traversal Prevention
+        if (uri != null) {
+            val uriStr = uri.toString()
+            val scheme = uri.scheme?.lowercase() ?: uriStr.substringBefore(":", "").lowercase()
+            if (scheme == "file" || uriStr.startsWith("file:", ignoreCase = true)) {
+                throw SecurityException("file:// URIs are rejected for security.")
+            }
+            if (!IngestSecurityValidator.isUriSafe(context, uri)) {
+                throw SecurityException("URI is insecure, traversal detected, or points to private storage.")
+            }
         }
 
         // Determine content type
@@ -40,16 +74,18 @@ class SharedItemHandler @Inject constructor(
 
         val sharedItem = SharedItemEntity(
             contentType = contentType,
-            rawContent = rawText ?: uri?.toString() ?: "",
+            rawContent = rawText ?: rawUriString ?: uri?.toString() ?: "",
             sourcePackage = "", // Not exposed by Android for privacy
             receivedAt = System.currentTimeMillis(),
             processed = false
         )
+
         val itemId = knowledgeDao.insertSharedItem(sharedItem)
 
-        // Extract entities from text content (local regex only)
-        if (!rawText.isNullOrBlank()) {
-            val entities = entityExtractor.extract(rawText, itemId)
+        // Extract entities from raw text (phones, emails, dates, URLs, tracking IDs)
+        val contentToExtract = rawText ?: rawUriString ?: uri?.toString() ?: ""
+        if (contentToExtract.isNotBlank()) {
+            val entities = entityExtractor.extract(contentToExtract, itemId)
             entities.forEach { knowledgeDao.insertExtractedEntity(it) }
         }
     }

@@ -12,8 +12,17 @@ interface NoteDao {
     @Insert
     suspend fun insert(note: NoteEntity)
 
+    @androidx.room.Update
+    suspend fun update(note: NoteEntity)
+
     @Query("SELECT * FROM notes ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<NoteEntity>>
+
+    @Query("SELECT * FROM notes ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getLatest(): NoteEntity?
+
+    @Query("SELECT * FROM notes WHERE title LIKE '%' || :title || '%' ORDER BY createdAt DESC LIMIT 1")
+    suspend fun findByTitle(title: String): NoteEntity?
 
     @Query("SELECT * FROM notes WHERE body LIKE '%' || :query || '%' LIMIT 10")
     suspend fun search(query: String): List<NoteEntity>

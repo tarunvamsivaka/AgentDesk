@@ -20,9 +20,8 @@ import javax.inject.Singleton
  *
  * Rules:
  * - FORBIDDEN_INTENTS are always denied, no exceptions.
- * - HIGH risk intents require user confirmation before execution.
- * - MEDIUM risk intents (e.g. SMS draft, dialer) open system UI with user approval.
- * - LOW risk intents are accepted immediately (no confirmation).
+ * - HIGH & CRITICAL risk intents require user confirmation before execution.
+ * - MEDIUM & LOW risk intents (e.g. calendar draft, notes, settings) open system UI without pre-launch blocking.
  * - Every evaluation writes an AuditEvent and a PolicyDecision row.
  *
  * The PolicyEngine is intentionally decoupled from any AI model and is purely
@@ -53,15 +52,19 @@ class PolicyEngine @Inject constructor(
             )
         }
 
-        // 2. Determine risk level for this intent (hardcoded MVP rules only)
+        // 2. Determine risk level for this intent (hardcoded rules)
         val risk = when (intent) {
-            Intents.SMS_DRAFT        -> RiskLevel.MEDIUM
-            Intents.DIAL_NUMBER      -> RiskLevel.MEDIUM
-            Intents.CALENDAR_CREATE  -> RiskLevel.LOW
-            Intents.SET_ALARM        -> RiskLevel.LOW
-            Intents.SET_TIMER        -> RiskLevel.LOW
+            Intents.SMS_DRAFT        -> RiskLevel.HIGH
+            Intents.DIAL_NUMBER      -> RiskLevel.HIGH
+            Intents.EMAIL_DRAFT      -> RiskLevel.HIGH
+            Intents.CALENDAR_CREATE  -> RiskLevel.MEDIUM
+            Intents.SET_ALARM        -> if (command.entities["skip_ui"] == "true" || command.entities["skipUi"] == "true") RiskLevel.MEDIUM else RiskLevel.LOW
+            Intents.SET_TIMER        -> if (command.entities["skip_ui"] == "true" || command.entities["skipUi"] == "true") RiskLevel.MEDIUM else RiskLevel.LOW
             Intents.NOTE_CREATE      -> RiskLevel.LOW
+            Intents.NOTE_APPEND      -> RiskLevel.LOW
+            Intents.NOTE_SEARCH      -> RiskLevel.LOW
             Intents.APP_OPEN         -> RiskLevel.LOW
+            Intents.SETTINGS_OPEN    -> RiskLevel.LOW
             Intents.LIBRARY_SEARCH   -> RiskLevel.LOW
             Intents.WEB_SEARCH       -> RiskLevel.LOW
             Intents.NAVIGATE_MAP     -> RiskLevel.LOW
@@ -69,39 +72,32 @@ class PolicyEngine @Inject constructor(
             else                     -> RiskLevel.HIGH
         }
 
-        // 3. HIGH risk (unknown intents) always require explicit confirmation
-        if (risk == RiskLevel.HIGH) {
+        // 3. HIGH and CRITICAL risk always requires explicit confirmation
+        if (risk == RiskLevel.HIGH || risk == RiskLevel.CRITICAL) {
             record(command, commandId, allowed = true, risk = risk,
-                requiresConfirmation = true, reason = "High-risk/unknown intent: $intent")
-            writeAudit(command, "NEEDS_CONFIRMATION", risk, "High-risk/unknown intent: $intent")
-            return CommandResult.NeedsConfirmation(
-                command = command.copy(riskLevel = risk, requiresConfirmation = true),
-                prompt = "This action requires your confirmation. Do you want to proceed?"
-            )
-        }
-
-        // 4. MEDIUM — open system UI (draft/dialer), but user must still tap Send/Call themselves
-        if (risk == RiskLevel.MEDIUM) {
-            record(command, commandId, allowed = true, risk = risk,
-                requiresConfirmation = true, reason = "Medium-risk intent: $intent")
-            writeAudit(command, "ACCEPTED_WITH_CONFIRMATION", risk, "Medium-risk intent: $intent")
+                requiresConfirmation = true, reason = "High-risk intent: $intent")
+            writeAudit(command, "NEEDS_CONFIRMATION", risk, "High-risk intent: $intent")
             return CommandResult.NeedsConfirmation(
                 command = command.copy(riskLevel = risk, requiresConfirmation = true),
                 prompt = confirmationPromptFor(intent, command)
             )
         }
 
-        // 5. LOW — accepted, no confirmation required
+        // 4. MEDIUM & LOW — accepted, transparent system UI execution without pre-launch blocking
+        val decision = if (risk == RiskLevel.MEDIUM) "ACCEPTED_MEDIUM" else "ACCEPTED"
         record(command, commandId, allowed = true, risk = risk,
-            requiresConfirmation = false, reason = "Low-risk intent: $intent")
-        writeAudit(command, "ACCEPTED", risk, "Low-risk intent: $intent")
+            requiresConfirmation = false, reason = "${risk.name}-risk intent: $intent")
+        writeAudit(command, decision, risk, "${risk.name}-risk intent: $intent")
         return CommandResult.Accepted(command.copy(riskLevel = risk))
     }
 
     private fun confirmationPromptFor(intent: String, command: Command): String = when (intent) {
-        Intents.SMS_DRAFT   -> "Open SMS draft to ${command.entities["contact"].orEmpty()}?"
-        Intents.DIAL_NUMBER -> "Open dialer for ${command.entities["contact"].orEmpty()}?"
-        else                -> "Proceed with this action?"
+        Intents.SMS_DRAFT       -> "Open SMS draft to ${command.entities["contact"].orEmpty()}?"
+        Intents.DIAL_NUMBER     -> "Open dialer for ${command.entities["contact"].orEmpty()}?"
+        Intents.EMAIL_DRAFT     -> "Open email draft to ${command.entities["recipient"].orEmpty().ifEmpty { command.entities["contact"].orEmpty() }}?"
+        Intents.CALENDAR_CREATE -> "Add calendar event '${command.entities["title"].orEmpty()}'?"
+        Intents.SET_ALARM       -> "Set alarm for ${command.entities["time"].orEmpty()}?"
+        else                    -> "Proceed with this action?"
     }
 
     /** Writes one PolicyDecision row per evaluation. */

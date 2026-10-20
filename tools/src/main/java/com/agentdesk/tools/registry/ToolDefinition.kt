@@ -70,15 +70,15 @@ object ToolRegistry {
             name = "Create Calendar Event",
             description = "Add an event to the system calendar (opens Calendar app).",
             category = ToolCategory.CONTENT,
-            riskLevel = RiskLevel.LOW,
-            requiresConfirmation = false
+            riskLevel = RiskLevel.MEDIUM,
+            requiresConfirmation = true
         ),
         ToolDefinition(
             id = "draft_sms",
             name = "Draft SMS",
             description = "Open the SMS app with a pre-filled draft. User must tap Send.",
             category = ToolCategory.COMMUNICATION,
-            riskLevel = RiskLevel.MEDIUM,
+            riskLevel = RiskLevel.HIGH,
             requiresConfirmation = true
         ),
         ToolDefinition(
@@ -86,8 +86,40 @@ object ToolRegistry {
             name = "Open Dialer",
             description = "Open the phone dialer with a number pre-filled. User must tap Call.",
             category = ToolCategory.COMMUNICATION,
-            riskLevel = RiskLevel.MEDIUM,
+            riskLevel = RiskLevel.HIGH,
             requiresConfirmation = true
+        ),
+        ToolDefinition(
+            id = "draft_email",
+            name = "Draft Email",
+            description = "Open the email app with recipient and body pre-filled. User must tap Send.",
+            category = ToolCategory.COMMUNICATION,
+            riskLevel = RiskLevel.HIGH,
+            requiresConfirmation = true
+        ),
+        ToolDefinition(
+            id = "append_note",
+            name = "Append Note",
+            description = "Append text to an existing local note.",
+            category = ToolCategory.CONTENT,
+            riskLevel = RiskLevel.LOW,
+            requiresConfirmation = false
+        ),
+        ToolDefinition(
+            id = "search_notes",
+            name = "Search Notes",
+            description = "Search local saved notes.",
+            category = ToolCategory.CONTENT,
+            riskLevel = RiskLevel.LOW,
+            requiresConfirmation = false
+        ),
+        ToolDefinition(
+            id = "system_settings",
+            name = "System Settings",
+            description = "Open device settings screens via safe allowlisted actions.",
+            category = ToolCategory.SYSTEM,
+            riskLevel = RiskLevel.LOW,
+            requiresConfirmation = false
         ),
         ToolDefinition(
             id = "library_search",

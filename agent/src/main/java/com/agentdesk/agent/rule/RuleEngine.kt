@@ -57,14 +57,29 @@ class RuleEngine @Inject constructor() {
                 extractor = { m -> mapOf("duration" to m.groupValues[1], "unit" to m.groupValues[2]) }
             ),
             Rule(
+                intentName = Intents.NOTE_APPEND,
+                pattern = Regex("""(?:append|add)\s+(?:to\s+note|to\s+notes)\s+(.+)"""),
+                extractor = { m -> mapOf("text" to m.groupValues[1].trim()) }
+            ),
+            Rule(
+                intentName = Intents.NOTE_SEARCH,
+                pattern = Regex("""(?:search|find)\s+notes?\s+(?:for\s+)?(.+)"""),
+                extractor = { m -> mapOf("query" to m.groupValues[1].trim()) }
+            ),
+            Rule(
                 intentName = Intents.NOTE_CREATE,
                 pattern = Regex("""(?:note|write|jot|remember)\s+(?:down\s+)?(.+)"""),
                 extractor = { m -> mapOf("text" to m.groupValues[1].trim()) }
             ),
             Rule(
                 intentName = Intents.CALENDAR_CREATE,
-                pattern = Regex("""(?:add|create|schedule)\s+(?:a\s+)?(?:meeting|event|appointment)(?:\s+(.+))?"""),
-                extractor = { m -> mapOf("title" to m.groupValues[1].trim()) }
+                pattern = Regex("""(?:add|create|schedule)\s+(?:a\s+)?(?:meeting|event|appointment)(?:\s+(?:called|titled|with\s+title)?\s*(.+))?"""),
+                extractor = { m -> mapOf("title" to m.groupValues[1].trim().ifBlank { "New Event" }) }
+            ),
+            Rule(
+                intentName = Intents.EMAIL_DRAFT,
+                pattern = Regex("""(?:email|mail|send\s+email\s+to)\s+([^:\n\r]+?)\s+(?:saying|about|with\s+subject|that|:)\s+(.+)"""),
+                extractor = { m -> mapOf("recipient" to m.groupValues[1].trim(), "body" to m.groupValues[2].trim()) }
             ),
             Rule(
                 intentName = Intents.SMS_DRAFT,
@@ -97,6 +112,16 @@ class RuleEngine @Inject constructor() {
                 intentName = Intents.NAVIGATE_MAP,
                 pattern = Regex("""(?:navigate|directions|take me)\s+(?:to\s+)?(.+)"""),
                 extractor = { m -> mapOf("destination" to m.groupValues[1].trim()) }
+            ),
+            Rule(
+                intentName = Intents.SETTINGS_OPEN,
+                pattern = Regex("""(?:open|show)\s+(?:the\s+)?(wifi|wi-fi|bluetooth|sound|audio|volume|display|screen|brightness|battery|power|storage|date)\s+settings?"""),
+                extractor = { m -> mapOf("setting" to m.groupValues[1].trim()) }
+            ),
+            Rule(
+                intentName = Intents.SETTINGS_OPEN,
+                pattern = Regex("""(?:open|show)\s+(?:system\s+)?settings(?:\s+(?:for\s+)?(.+))?"""),
+                extractor = { m -> mapOf("setting" to (m.groupValues[1].takeIf { it.isNotBlank() }?.trim() ?: "all")) }
             ),
             Rule(
                 intentName = Intents.APP_OPEN,

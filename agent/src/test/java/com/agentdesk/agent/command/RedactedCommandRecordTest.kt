@@ -1,7 +1,9 @@
 package com.agentdesk.agent.command
 
 import com.agentdesk.agent.policy.PolicyEngine
+import com.agentdesk.agent.rule.Intents
 import com.agentdesk.agent.rule.RuleEngine
+import com.agentdesk.core.common.model.RiskLevel
 import com.agentdesk.core.common.tools.ToolRunner
 import com.agentdesk.core.common.tools.ToolRunResult
 import com.agentdesk.core.persistence.dao.AuditDao
@@ -15,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -131,5 +134,27 @@ class RedactedCommandRecordTest {
         val record = commandDao.inserted.single()
         assertTrue(record.rawInput.contains("buy milk"))
         assertFalse(record.rawInput.contains("[PHONE]"))
+    }
+
+    @Test
+    fun `communication intent requires high risk confirmation and scrubs PII in confirmed execution`() = runBlocking {
+        val outcome = gateway.submitText("text 555-123-4567 saying secret meeting at 5pm")
+        assertTrue("SMS drafting must require user confirmation", outcome is CommandOutcome.NeedsUserConfirmation)
+        val needs = outcome as CommandOutcome.NeedsUserConfirmation
+        assertEquals(RiskLevel.HIGH, needs.command.riskLevel)
+
+        // Verify initial record is redacted
+        val initialRecord = commandDao.inserted.first()
+        assertFalse(initialRecord.rawInput.contains("555-123-4567"))
+        assertTrue(initialRecord.rawInput.contains("[PHONE]"))
+
+        // Execute confirmed command
+        val confirmedOutcome = gateway.executeConfirmed(needs.command)
+        assertTrue(confirmedOutcome is CommandOutcome.Executed)
+
+        // Verify confirmed record is also redacted
+        val confirmedRecord = commandDao.inserted.last()
+        assertFalse(confirmedRecord.rawInput.contains("555-123-4567"))
+        assertTrue(confirmedRecord.rawInput.contains("[PHONE]"))
     }
 }
