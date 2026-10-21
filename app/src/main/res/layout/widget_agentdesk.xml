@@ -41,11 +41,14 @@
             android:contentDescription="Voice Command" />
     </LinearLayout>
 
-    <View
+    <ImageView
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:layout_marginVertical="6dp"
-        android:background="#333333" />
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
+        android:background="#333333"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no" />
 
     <!-- Status Stats Row -->
     <LinearLayout

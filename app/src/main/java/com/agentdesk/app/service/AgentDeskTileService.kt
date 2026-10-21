@@ -1,5 +1,6 @@
 package com.agentdesk.app.service
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
@@ -40,6 +41,7 @@ class AgentDeskTileService : TileService() {
         }
     }
 
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     private fun launchOverlay(intent: Intent) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
