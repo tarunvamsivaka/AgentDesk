@@ -1,0 +1,60 @@
+name: AgentDesk Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build, Verify & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Verify Zero-Cloud Egress Invariant
+        run: ./gradlew :core:security:testDebugUnitTest --tests "com.agentdesk.core.security.ZeroCloudEgressVerificationTest"
+
+      - name: Run Unit & E2E Tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Assemble Release APK & Bundle
+        run: ./gradlew assembleRelease bundleRelease
+
+      - name: Generate SHA-256 Checksums
+        run: |
+          mkdir -p release-artifacts
+          find app/build/outputs/apk/release/ -type f -name "*.apk" -exec cp {} release-artifacts/ \;
+          find app/build/outputs/bundle/release/ -type f -name "*.aab" -exec cp {} release-artifacts/ \;
+          cd release-artifacts
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release & Attach Artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/*.apk
+            release-artifacts/*.aab
+            release-artifacts/checksums.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
