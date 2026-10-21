@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">AgentDesk</string>
     <string name="app_motto">Your private, local-first copilot</string>
+    <string name="tile_name">AgentDesk</string>
+    <string name="widget_name">AgentDesk Quick Assistant</string>
 </resources>

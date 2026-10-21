@@ -14,6 +14,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.agentdesk.app.navigation.AppNavHost
 import com.agentdesk.app.navigation.Routes
+import com.agentdesk.app.shortcut.ShortcutHelper
 import com.agentdesk.app.ui.lock.LockScreen
 import com.agentdesk.app.ui.theme.AgentDeskTheme
 import com.agentdesk.core.common.model.ConsentState
@@ -32,6 +33,7 @@ import javax.inject.Inject
  * 2. If appLockEnabled, show LockScreen before AppNavHost and apply FLAG_SECURE window privacy.
  * 3. Trigger biometric authentication via AppLockManager on request.
  * 4. Determine startDestination based on user consent (first run vs returning).
+ * 5. Publish native dynamic shortcuts.
  */
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
@@ -48,6 +50,10 @@ class MainActivity : FragmentActivity() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
         }
+
+        // Publish dynamic shortcuts
+        ShortcutHelper.publishDynamicShortcuts(this)
+
         setContent {
             AgentDeskTheme {
                 AgentDeskRoot(
@@ -110,7 +116,11 @@ private fun AgentDeskRoot(
         if (startDestination == null) {
             val consentState = consentDao.getState(ConsentKeys.AUDIT_LOG)
             startDestination = if (consentState == ConsentState.GRANTED) {
-                Routes.CHAT
+                if (activity.intent?.action == ShortcutHelper.ACTION_SEARCH_LIBRARY) {
+                    Routes.LIBRARY
+                } else {
+                    Routes.CHAT
+                }
             } else {
                 Routes.ONBOARDING
             }

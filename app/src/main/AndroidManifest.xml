@@ -28,12 +28,15 @@
 
     <!-- ===================================================
          PERMISSIONS
-         Only declare permissions actually used in MVP.
+         Only declare permissions actually used in AgentDesk.
          No SMS read, no call log, no background location.
          =================================================== -->
 
     <!-- Notifications (API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Offline voice dictation (100% on-device speech-to-text) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- SAF import needs no media permissions; only audio retained for
          user-initiated share-bridge playback -->
@@ -94,11 +97,45 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- Assistant Overlay: Translucent bottom sheet handling ASSIST -->
+        <activity
+            android:name=".overlay.AssistantOverlayActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AgentDesk.Overlay"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.ASSIST" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Quick Settings Tile Service -->
+        <service
+            android:name=".service.AgentDeskTileService"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/tile_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Home Screen AppWidget Provider -->
+        <receiver
+            android:name=".widget.AgentDeskAppWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/agentdesk_appwidget_info" />
+        </receiver>
 
         <!-- Share Bridge: receives shared content from other apps -->
         <activity
