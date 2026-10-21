@@ -163,4 +163,40 @@ class SharedItemHandlerTest {
         }
         org.junit.Assert.assertFalse(IngestSecurityValidator.verifyMagicBytes(binaryFile))
     }
+
+    @Test
+    fun testHandleImageShareWithStructuredMetadataIndexing() = runBlocking {
+        val intent = object : Intent(ACTION_SEND) {
+            override fun getType(): String = "image/png"
+            override fun getStringExtra(name: String?): String? {
+                return when (name) {
+                    EXTRA_TEXT -> "Screenshot of invoice dated 2026-10-21"
+                    "EXTRA_URI_STRING" -> "content://media/external/images/invoice_receipt.png"
+                    else -> null
+                }
+            }
+        }
+
+        handler.handle(intent)
+
+        assertEquals("Should insert 1 shared item", 1, fakeKnowledgeDao.sharedItems.size)
+        val item = fakeKnowledgeDao.sharedItems.first()
+        assertEquals("image", item.contentType)
+        assertTrue(item.rawContent.contains("[Image: invoice_receipt.png | image/png]"))
+        assertTrue(item.rawContent.contains("Screenshot of invoice dated 2026-10-21"))
+
+        // Check structured metadata entities
+        val entities = fakeKnowledgeDao.extractedEntities
+        val mimeEntity = entities.find { it.entityType == "MIME_TYPE" }
+        assertNotNull(mimeEntity)
+        assertEquals("image/png", mimeEntity!!.value)
+
+        val fileEntity = entities.find { it.entityType == "FILE_NAME" }
+        assertNotNull(fileEntity)
+        assertEquals("invoice_receipt.png", fileEntity!!.value)
+
+        val dateEntity = entities.find { it.entityType == "DATE_TIME" }
+        assertNotNull(dateEntity)
+        assertEquals("2026-10-21", dateEntity!!.value)
+    }
 }

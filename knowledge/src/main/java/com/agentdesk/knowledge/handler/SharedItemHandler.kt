@@ -2,8 +2,10 @@ package com.agentdesk.knowledge.handler
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import com.agentdesk.core.persistence.dao.KnowledgeDao
 import com.agentdesk.core.persistence.entity.ExtractedEntityEntity
 import com.agentdesk.core.persistence.entity.SharedItemEntity
@@ -72,9 +74,35 @@ class SharedItemHandler @Inject constructor(
             else -> "text"
         }
 
+        val imageMetadata = if (mimeType.startsWith("image/")) {
+            extractImageMetadata(uri, rawUriString, mimeType)
+        } else null
+
+        val finalRawContent = when {
+            imageMetadata != null -> {
+                buildString {
+                    append("[Image: ${imageMetadata.fileName} | ${imageMetadata.mimeType}")
+                    if (imageMetadata.dimensions != null) {
+                        append(" | ${imageMetadata.dimensions.first}x${imageMetadata.dimensions.second}")
+                    }
+                    if (imageMetadata.fileSize != null) {
+                        append(" | ${imageMetadata.fileSize} bytes")
+                    }
+                    append("]")
+                    if (!rawText.isNullOrBlank()) {
+                        append("\n").append(rawText)
+                    }
+                }
+            }
+            rawText != null -> rawText
+            rawUriString != null -> rawUriString
+            uri != null -> uri.toString()
+            else -> ""
+        }
+
         val sharedItem = SharedItemEntity(
             contentType = contentType,
-            rawContent = rawText ?: rawUriString ?: uri?.toString() ?: "",
+            rawContent = finalRawContent,
             sourcePackage = "", // Not exposed by Android for privacy
             receivedAt = System.currentTimeMillis(),
             processed = false
@@ -83,11 +111,112 @@ class SharedItemHandler @Inject constructor(
         val itemId = knowledgeDao.insertSharedItem(sharedItem)
 
         // Extract entities from raw text (phones, emails, dates, URLs, tracking IDs)
-        val contentToExtract = rawText ?: rawUriString ?: uri?.toString() ?: ""
+        val contentToExtract = rawText ?: finalRawContent
         if (contentToExtract.isNotBlank()) {
             val entities = entityExtractor.extract(contentToExtract, itemId)
             entities.forEach { knowledgeDao.insertExtractedEntity(it) }
         }
+
+        // Index structured image metadata entities
+        if (imageMetadata != null) {
+            val now = System.currentTimeMillis()
+            knowledgeDao.insertExtractedEntity(
+                ExtractedEntityEntity(
+                    sharedItemId = itemId,
+                    entityType = "MIME_TYPE",
+                    value = imageMetadata.mimeType,
+                    confidence = 1.0f,
+                    extractedAt = now
+                )
+            )
+            imageMetadata.fileName?.let {
+                knowledgeDao.insertExtractedEntity(
+                    ExtractedEntityEntity(
+                        sharedItemId = itemId,
+                        entityType = "FILE_NAME",
+                        value = it,
+                        confidence = 1.0f,
+                        extractedAt = now
+                    )
+                )
+            }
+            imageMetadata.fileSize?.let {
+                knowledgeDao.insertExtractedEntity(
+                    ExtractedEntityEntity(
+                        sharedItemId = itemId,
+                        entityType = "FILE_SIZE",
+                        value = "$it bytes",
+                        confidence = 1.0f,
+                        extractedAt = now
+                    )
+                )
+            }
+            imageMetadata.dimensions?.let {
+                knowledgeDao.insertExtractedEntity(
+                    ExtractedEntityEntity(
+                        sharedItemId = itemId,
+                        entityType = "DIMENSIONS",
+                        value = "${it.first}x${it.second}",
+                        confidence = 1.0f,
+                        extractedAt = now
+                    )
+                )
+            }
+        }
+    }
+
+    internal data class ImageMetadata(
+        val fileName: String?,
+        val mimeType: String,
+        val fileSize: Long?,
+        val dimensions: Pair<Int, Int>?
+    )
+
+    private fun extractImageMetadata(uri: Uri?, rawUriString: String?, mimeType: String): ImageMetadata {
+        var fileName: String? = null
+        var fileSize: Long? = null
+        var dimensions: Pair<Int, Int>? = null
+
+        if (uri != null && context != null) {
+            try {
+                context.contentResolver.query(
+                    uri,
+                    arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (nameIdx >= 0) fileName = cursor.getString(nameIdx)
+                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (sizeIdx >= 0) fileSize = cursor.getLong(sizeIdx)
+                    }
+                }
+            } catch (_: Throwable) {}
+
+            try {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeStream(stream, null, options)
+                    if (options.outWidth > 0 && options.outHeight > 0) {
+                        dimensions = Pair(options.outWidth, options.outHeight)
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
+        if (fileName.isNullOrBlank()) {
+            val candidate = uri?.lastPathSegment ?: rawUriString?.substringAfterLast('/')
+            fileName = if (!candidate.isNullOrBlank()) candidate else "image"
+        }
+
+        return ImageMetadata(
+            fileName = fileName,
+            mimeType = mimeType,
+            fileSize = fileSize,
+            dimensions = dimensions
+        )
     }
 }
 

@@ -111,6 +111,24 @@ class KeyStoreManagerTest {
     }
 
     @Test
+    fun testGetBiometricCipherReturnsValidCipher() {
+        val cipher = keyStoreManager.getBiometricCipher()
+        assertNotNull("Biometric cipher must be non-null in software/hardware test env", cipher)
+        assertTrue(cipher!!.algorithm.contains("AES") && cipher.algorithm.contains("GCM"))
+    }
+
+    @Test
+    fun testGetBiometricCipherGracefulFallbackOnException() {
+        val failingManager = object : KeyStoreManager(context = null) {
+            override fun createEncryptCipher(key: SecretKey): Cipher {
+                throw IllegalStateException("Hardware biometric key invalidated or not enrolled")
+            }
+        }
+        val cipher = failingManager.getBiometricCipher()
+        org.junit.Assert.assertNull("Must return null when biometric key throws hardware exception", cipher)
+    }
+
+    @Test
     fun testAppLockManagerBiometricCryptoObjectBinding() {
         val dataStore = PreferenceDataStoreFactory.create(
             scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -124,7 +142,7 @@ class KeyStoreManagerTest {
 
         val cryptoObject = appLockManager.createBiometricCryptoObject()
         assertNotNull("CryptoObject must not be null", cryptoObject)
-        val cipher = cryptoObject.cipher
+        val cipher = cryptoObject?.cipher
         assertNotNull("Cipher bound inside CryptoObject must not be null", cipher)
         assertTrue("Bound cipher must be AES/GCM", cipher!!.algorithm.contains("AES") && cipher.algorithm.contains("GCM"))
     }

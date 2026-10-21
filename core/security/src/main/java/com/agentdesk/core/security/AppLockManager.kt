@@ -168,16 +168,22 @@ class AppLockManager internal constructor(
 
     /**
      * Initializes and returns a [BiometricPrompt.CryptoObject] bound to the hardware master key cipher.
+     * Returns null if biometric cipher creation fails or biometrics are not enrolled.
      */
-    fun createBiometricCryptoObject(): BiometricPrompt.CryptoObject {
-        val ksm = keyStoreManager ?: KeyStoreManager(context)
-        val cipher = ksm.createEncryptCipher()
-        return BiometricPrompt.CryptoObject(cipher)
+    fun createBiometricCryptoObject(): BiometricPrompt.CryptoObject? {
+        val ksm = keyStoreManager ?: (context?.let { KeyStoreManager(it) }) ?: KeyStoreManager(null)
+        return try {
+            val cipher = ksm.getBiometricCipher() ?: return null
+            BiometricPrompt.CryptoObject(cipher)
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     /**
      * Launches biometric authentication bound to the hardware cipher.
-     * Must be called from a FragmentActivity context.
+     * Must be called from a FragmentActivity context. Gracefully falls back to
+     * device credential authentication if hardware biometric cipher is unavailable.
      */
     fun authenticate(
         activity: FragmentActivity,

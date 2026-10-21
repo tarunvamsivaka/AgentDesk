@@ -155,6 +155,19 @@ open class KeyStoreManager @Inject constructor(
     }
 
     /**
+     * Initializes and returns a hardware-bound AES-256-GCM cipher for use with
+     * [androidx.biometric.BiometricPrompt.CryptoObject]. Returns null if biometric
+     * enrollment or KeyStore fails.
+     */
+    open fun getBiometricCipher(): Cipher? {
+        return try {
+            createEncryptCipher()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
      * Initializes and returns an AES-256-GCM cipher in decryption mode using the master key and IV.
      */
     open fun createDecryptCipher(iv: ByteArray, key: SecretKey = getOrCreateMasterKey()): Cipher {

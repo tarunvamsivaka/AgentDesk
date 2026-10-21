@@ -59,7 +59,17 @@ object PdfTextExtractor {
 
             // 4. Extract text from content streams
             val extracted = extractStreamsText(pdfBytes)
-            if (extracted.isBlank()) {
+            val metadata = extractMetadata(pdfBytes)
+            val isScannedOrLowText = extracted.isBlank() || (extracted.length < 30 && containsImageResources(pdfBytes))
+
+            if (isScannedOrLowText) {
+                val fallback = buildFallbackDescriptor(pageCount, metadata, extracted.trim())
+                if (fallback.isNotBlank()) {
+                    return if (fallback.length > MAX_CHARS) fallback.substring(0, MAX_CHARS).trim() else fallback
+                }
+            }
+
+            return if (extracted.isBlank()) {
                 null
             } else if (extracted.length > MAX_CHARS) {
                 extracted.substring(0, MAX_CHARS).trim()
@@ -81,6 +91,66 @@ object PdfTextExtractor {
         val pageRegex = Regex("""/Type\s*/Page\b(?!\s*s)""")
         val matches = pageRegex.findAll(content).count()
         return if (matches == 0) 1 else matches
+    }
+
+    /**
+     * Checks if the PDF contains image xobject references.
+     */
+    internal fun containsImageResources(pdfBytes: ByteArray): Boolean {
+        val content = String(pdfBytes, StandardCharsets.ISO_8859_1)
+        return content.contains("/Subtype/Image") ||
+                content.contains("/Subtype /Image") ||
+                content.contains("/XObject")
+    }
+
+    /**
+     * Extracts embedded document metadata from the PDF structure.
+     */
+    internal fun extractMetadata(pdfBytes: ByteArray): Map<String, String> {
+        val content = String(pdfBytes, StandardCharsets.ISO_8859_1)
+        val metadata = linkedMapOf<String, String>()
+        val fields = listOf("Title", "Author", "Subject", "Keywords", "Creator", "Producer", "CreationDate")
+        for (field in fields) {
+            val literalRegex = Regex("""/$field\s*\(([^)]*)\)""")
+            val literalMatch = literalRegex.find(content)
+            if (literalMatch != null) {
+                val value = unescapePdfString(literalMatch.groupValues[1].trim())
+                if (value.isNotBlank()) {
+                    metadata[field] = value
+                    continue
+                }
+            }
+            val hexRegex = Regex("""/$field\s*<([0-9a-fA-F]+)>""")
+            val hexMatch = hexRegex.find(content)
+            if (hexMatch != null) {
+                val value = decodeHex(hexMatch.groupValues[1]).trim()
+                if (value.isNotBlank()) {
+                    metadata[field] = value
+                }
+            }
+        }
+        return metadata
+    }
+
+    /**
+     * Generates a clean structured fallback descriptor for scanned or image-based PDF documents.
+     */
+    internal fun buildFallbackDescriptor(
+        pageCount: Int,
+        metadata: Map<String, String>,
+        sparseText: String = ""
+    ): String {
+        val sb = StringBuilder()
+        sb.append("[Scanned / Image-based PDF Document - $pageCount page(s)]")
+        if (metadata.isNotEmpty()) {
+            metadata.forEach { (k, v) ->
+                sb.append("\n$k: $v")
+            }
+        }
+        if (sparseText.isNotBlank()) {
+            sb.append("\nSparse Content: ").append(sparseText)
+        }
+        return sb.toString().trim()
     }
 
     /**

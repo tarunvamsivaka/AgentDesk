@@ -101,6 +101,45 @@ class PdfTextExtractorTest {
         assertNull("PDF exceeding 500-page cap must be rejected", extracted)
     }
 
+    @Test
+    fun testScannedPdfExtractsFallbackDescriptorAndMetadata() {
+        val scannedPdf = buildString {
+            append("%PDF-1.4\n")
+            append("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+            append("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n")
+            append("3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im1 4 0 R >> >> >>\nendobj\n")
+            append("4 0 obj\n<< /Type /XObject /Subtype /Image /Width 100 /Height 100 >>\nstream\n[binary image data]\nendstream\nendobj\n")
+            append("5 0 obj\n<< /Title (Scanned Property Tax Receipt) /Author (AgentDesk Scanner) >>\nendobj\n")
+            append("trailer\n<< /Root 1 0 R /Info 5 0 R >>\n%%EOF")
+        }
+
+        val extracted = PdfTextExtractor.extractText(
+            ByteArrayInputStream(scannedPdf.toByteArray(StandardCharsets.ISO_8859_1))
+        )
+        assertNotNull(extracted)
+        assertTrue(extracted!!.contains("[Scanned / Image-based PDF Document - 1 page(s)]"))
+        assertTrue(extracted.contains("Title: Scanned Property Tax Receipt"))
+        assertTrue(extracted.contains("Author: AgentDesk Scanner"))
+    }
+
+    @Test
+    fun testScannedPdfWithoutMetadataProducesCleanPageDescriptor() {
+        val imageOnlyPdf = buildString {
+            append("%PDF-1.4\n")
+            append("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+            append("2 0 obj\n<< /Type /Pages /Kids [3 0 R, 4 0 R] /Count 2 >>\nendobj\n")
+            append("3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n")
+            append("4 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n")
+            append("trailer\n<< /Root 1 0 R >>\n%%EOF")
+        }
+
+        val extracted = PdfTextExtractor.extractText(
+            ByteArrayInputStream(imageOnlyPdf.toByteArray(StandardCharsets.ISO_8859_1))
+        )
+        assertNotNull(extracted)
+        assertTrue(extracted!!.contains("[Scanned / Image-based PDF Document - 2 page(s)]"))
+    }
+
     private fun deflate(bytes: ByteArray): ByteArray {
         val baos = ByteArrayOutputStream()
         DeflaterOutputStream(baos).use { dos ->
