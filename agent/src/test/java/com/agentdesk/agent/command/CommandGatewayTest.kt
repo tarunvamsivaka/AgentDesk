@@ -399,4 +399,24 @@ class CommandGatewayTest {
         assertEquals("multi_step_workflow", paused.single().intentName)
         assertEquals(TaskStatus.PAUSED, paused.single().status)
     }
+
+    @Test
+    fun `verb-lookahead and quote-safe multi-step splitter prevents false positive clause splitting`() = runBlocking {
+        toolRunner.nextResult = ToolRunResult("note_created", true, "Note created successfully.")
+
+        // 1. Single-step command with benign internal "then" that should NOT split
+        val singleOutcome = gateway.submitText("create a note saying if build fails then check logs")
+        assertTrue(singleOutcome is CommandOutcome.Executed)
+        val singleExecuted = singleOutcome as CommandOutcome.Executed
+        assertEquals("note.create", singleExecuted.intentName)
+        assertEquals(0, taskDao.tasks.size) // No multi-step DAG created
+
+        // 2. Multi-step command with verb lookahead "set" that SHOULD split into a 2-step DAG
+        val multiOutcome = gateway.submitText("create a note about deployment and then set a timer for 10 minutes")
+        assertTrue(multiOutcome is CommandOutcome.Executed)
+        val multiExecuted = multiOutcome as CommandOutcome.Executed
+        assertEquals("multi_step_workflow", multiExecuted.intentName)
+        assertEquals(1, taskDao.tasks.size)
+        assertEquals(2, taskDao.steps.size)
+    }
 }

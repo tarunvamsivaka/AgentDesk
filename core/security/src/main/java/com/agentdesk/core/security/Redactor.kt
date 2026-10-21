@@ -37,7 +37,17 @@ class Redactor @Inject constructor() {
             var start = 0
             val chunkSize = 4000
             while (start < input.length) {
-                val end = (start + chunkSize).coerceAtMost(input.length)
+                var end = (start + chunkSize).coerceAtMost(input.length)
+                // When end < input.length, advance end up to 128 chars forward to next whitespace
+                if (end < input.length) {
+                    val maxScan = (end + 128).coerceAtMost(input.length)
+                    for (i in end until maxScan) {
+                        if (input[i].isWhitespace()) {
+                            end = i
+                            break
+                        }
+                    }
+                }
                 val chunk = input.substring(start, end)
                 sb.append(redactChunk(chunk, hasAt, hasColonOrEqual, hasDigit))
                 start = end

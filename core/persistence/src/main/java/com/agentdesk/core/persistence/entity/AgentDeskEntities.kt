@@ -419,9 +419,25 @@ data class EmbeddingVectorEntity(
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is EmbeddingVectorEntity) return false
-        return id == other.id && chunkId == other.chunkId
+        if (id != other.id) return false
+        if (chunkId != other.chunkId) return false
+        if (modelVersion != other.modelVersion) return false
+        if (createdAt != other.createdAt) return false
+        if (vectorBlob != null) {
+            if (other.vectorBlob == null) return false
+            if (!vectorBlob.contentEquals(other.vectorBlob)) return false
+        } else if (other.vectorBlob != null) return false
+        return true
     }
-    override fun hashCode(): Int = 31 * id.hashCode() + chunkId.hashCode()
+
+    override fun hashCode(): Int {
+        var result = id.hashCode()
+        result = 31 * result + chunkId.hashCode()
+        result = 31 * result + (vectorBlob?.contentHashCode() ?: 0)
+        result = 31 * result + modelVersion.hashCode()
+        result = 31 * result + createdAt.hashCode()
+        return result
+    }
 }
 
 @Entity(

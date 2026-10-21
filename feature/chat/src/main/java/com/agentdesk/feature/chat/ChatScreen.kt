@@ -65,7 +65,7 @@ fun ChatScreen(
 
             // Welcome / empty state
             if (uiState.messages.isEmpty()) {
-                item {
+                item(key = "empty_welcome_state", contentType = "welcome") {
                     Text(
                         text = "Your private, local-first copilot.\nType a command or tap a suggestion below.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -75,12 +75,18 @@ fun ChatScreen(
                 }
             }
 
-            items(uiState.messages, key = { it.id }) { message ->
+            items(
+                items = uiState.messages,
+                key = { it.id },
+                contentType = { "message_${it.sender}" }
+            ) { message ->
                 ChatBubble(message)
             }
 
             if (uiState.isProcessing) {
-                item { TypingIndicator() }
+                item(key = "typing_indicator", contentType = "indicator") {
+                    TypingIndicator()
+                }
             }
         }
 

@@ -218,14 +218,50 @@ class CommandGateway @Inject constructor(
     // ---------------------------------------------------------------------------
 
     private fun decomposeIntoClauses(rawInput: String): List<String> {
-        val delimiters = listOf(
-            Regex("(?i)\\s+(?:and\\s+then|then|&\\s+then)\\s+"),
-            Regex(";\\s*")
+        val splitRegex = Regex(
+            """(?i)(?:\s+(?:and\s+then|then|&\s+then)\s+|;\s*)(?=(?:set|create|add|send|call|dial|email|open|launch|note|search|find|turn|toggle|remind|schedule|draft)\b)"""
         )
-        var clauses = listOf(rawInput)
-        for (delimiter in delimiters) {
-            clauses = clauses.flatMap { it.split(delimiter).map { s -> s.trim() }.filter { s -> s.isNotBlank() } }
+
+        // Track whether each character position is enclosed within single or double quotes
+        val inQuote = BooleanArray(rawInput.length)
+        var inDouble = false
+        var inSingle = false
+        for (i in rawInput.indices) {
+            val c = rawInput[i]
+            if (c == '"' && !inSingle) {
+                inDouble = !inDouble
+                inQuote[i] = true
+            } else if (c == '\'' && !inDouble) {
+                inSingle = !inSingle
+                inQuote[i] = true
+            } else {
+                inQuote[i] = inDouble || inSingle
+            }
         }
+
+        val splitMatches = splitRegex.findAll(rawInput).filter { match ->
+            val range = match.range
+            range.none { idx -> idx in inQuote.indices && inQuote[idx] }
+        }.toList()
+
+        if (splitMatches.isEmpty()) {
+            return listOf(rawInput.trim()).filter { it.isNotBlank() }
+        }
+
+        val clauses = mutableListOf<String>()
+        var lastEnd = 0
+        for (match in splitMatches) {
+            val clause = rawInput.substring(lastEnd, match.range.first).trim()
+            if (clause.isNotBlank()) {
+                clauses.add(clause)
+            }
+            lastEnd = match.range.last + 1
+        }
+        val tail = rawInput.substring(lastEnd).trim()
+        if (tail.isNotBlank()) {
+            clauses.add(tail)
+        }
+
         return clauses.take(MAX_STEPS_PER_TASK)
     }
 

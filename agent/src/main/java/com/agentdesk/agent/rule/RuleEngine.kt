@@ -109,7 +109,7 @@ class RuleEngine @Inject constructor() {
             ),
             Rule(
                 intentName = Intents.NOTE_CREATE,
-                pattern = Regex("""(?:create\s+note|take\s+note|note|write|jot|remember)\s+(?:down\s+)?(.+)"""),
+                pattern = Regex("""(?:create\s+(?:a\s+)?note|take\s+(?:a\s+)?note|note|write|jot|remember)\s+(?:down\s+)?(.+)"""),
                 extractor = { m -> mapOf("text" to m.groupValues[1].trim()) }
             ),
             Rule(

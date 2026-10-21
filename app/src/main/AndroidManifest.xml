@@ -105,6 +105,8 @@
             android:name=".share.ShareReceiverActivity"
             android:exported="true"
             android:theme="@style/Theme.AgentDesk"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
             android:noHistory="true">
 
             <!-- Receive shared plain text -->

@@ -1,5 +1,9 @@
 package com.agentdesk.core.security
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -22,6 +26,8 @@ import javax.inject.Singleton
  * - Cipher: AES/GCM/NoPadding, 12-byte random IV, 128-bit authentication tag.
  * - Integrity Pre-Check: HMAC-SHA256 digest verified via MessageDigest.isEqual before GCM decryption.
  * - Tamper Response: Throws SecurityException on bad password, tampered header, or corrupted ciphertext.
+ * - Concurrency & Thread Isolation: Key derivation and encryption/decryption execute on Dispatchers.Default.
+ *   Streaming I/O executes on Dispatchers.IO with explicit MAX_VAULT_SIZE_BYTES safety guardrails.
  */
 @Singleton
 class VaultBackupManager @Inject constructor() {
@@ -37,103 +43,169 @@ class VaultBackupManager @Inject constructor() {
         const val TOTAL_KEY_BITS = 512
         const val AES_KEY_BYTES = 32
         const val HMAC_KEY_BYTES = 32
+        const val MAX_VAULT_SIZE_BYTES: Long = 50 * 1024 * 1024 // 50 MB safety limit
+        const val BUFFER_SIZE = 8192
     }
 
     private val secureRandom = SecureRandom()
 
     /**
      * Encrypts the provided raw payload into an authenticated .agentdesk vault package.
+     * Wrapped in Dispatchers.Default for CPU-bound PBKDF2 and AES-GCM cipher isolation.
      */
-    fun encryptVault(payload: ByteArray, password: CharArray): ByteArray {
-        val salt = ByteArray(SALT_LENGTH)
-        secureRandom.nextBytes(salt)
+    suspend fun encryptVault(payload: ByteArray, password: CharArray): ByteArray =
+        withContext(Dispatchers.Default) {
+            if (payload.size > MAX_VAULT_SIZE_BYTES) {
+                throw IllegalArgumentException("Payload size ${payload.size} exceeds maximum vault limit of $MAX_VAULT_SIZE_BYTES bytes")
+            }
 
-        val iv = ByteArray(IV_LENGTH)
-        secureRandom.nextBytes(iv)
+            val salt = ByteArray(SALT_LENGTH)
+            secureRandom.nextBytes(salt)
 
-        val (aesKey, hmacKey) = deriveKeys(password, salt)
+            val iv = ByteArray(IV_LENGTH)
+            secureRandom.nextBytes(iv)
 
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val gcmSpec = GCMParameterSpec(GCM_TAG_BITS, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(aesKey, "AES"), gcmSpec)
-        val ciphertext = cipher.doFinal(payload)
+            val (aesKey, hmacKey) = deriveKeys(password, salt)
 
-        // Compute HMAC-SHA256 over (salt + iv + ciphertext)
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(hmacKey, "HmacSHA256"))
-        mac.update(salt)
-        mac.update(iv)
-        val hmac = mac.doFinal(ciphertext)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            val gcmSpec = GCMParameterSpec(GCM_TAG_BITS, iv)
+            cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(aesKey, "AES"), gcmSpec)
+            val ciphertext = cipher.doFinal(payload)
 
-        // Assemble package: [MAGIC 4B][VERSION 1B][SALT 16B][IV 12B][HMAC 32B][CIPHERTEXT]
-        val totalSize = MAGIC_BYTES.size + 1 + SALT_LENGTH + IV_LENGTH + HMAC_LENGTH + ciphertext.size
-        val buffer = ByteBuffer.allocate(totalSize)
-        buffer.put(MAGIC_BYTES)
-        buffer.put(FORMAT_VERSION)
-        buffer.put(salt)
-        buffer.put(iv)
-        buffer.put(hmac)
-        buffer.put(ciphertext)
+            // Compute HMAC-SHA256 over (salt + iv + ciphertext)
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(hmacKey, "HmacSHA256"))
+            mac.update(salt)
+            mac.update(iv)
+            val hmac = mac.doFinal(ciphertext)
 
-        return buffer.array()
-    }
+            // Assemble package: [MAGIC 4B][VERSION 1B][SALT 16B][IV 12B][HMAC 32B][CIPHERTEXT]
+            val totalSize = MAGIC_BYTES.size + 1 + SALT_LENGTH + IV_LENGTH + HMAC_LENGTH + ciphertext.size
+            val buffer = ByteBuffer.allocate(totalSize)
+            buffer.put(MAGIC_BYTES)
+            buffer.put(FORMAT_VERSION)
+            buffer.put(salt)
+            buffer.put(iv)
+            buffer.put(hmac)
+            buffer.put(ciphertext)
+
+            buffer.array()
+        }
 
     /**
      * Decrypts an authenticated .agentdesk vault package, verifying integrity before decryption.
      * Throws [SecurityException] if format is invalid, password is wrong, or payload has been tampered with.
+     * Wrapped in Dispatchers.Default for CPU-bound key derivation and cipher verification.
      */
-    fun decryptVault(vaultData: ByteArray, password: CharArray): ByteArray {
-        val minHeaderSize = MAGIC_BYTES.size + 1 + SALT_LENGTH + IV_LENGTH + HMAC_LENGTH
-        if (vaultData.size < minHeaderSize) {
-            throw SecurityException("Vault integrity compromised or corrupted: invalid header size")
+    suspend fun decryptVault(vaultData: ByteArray, password: CharArray): ByteArray =
+        withContext(Dispatchers.Default) {
+            if (vaultData.size > MAX_VAULT_SIZE_BYTES) {
+                throw SecurityException("Vault data size ${vaultData.size} exceeds maximum vault limit of $MAX_VAULT_SIZE_BYTES bytes")
+            }
+
+            val minHeaderSize = MAGIC_BYTES.size + 1 + SALT_LENGTH + IV_LENGTH + HMAC_LENGTH
+            if (vaultData.size < minHeaderSize) {
+                throw SecurityException("Vault integrity compromised or corrupted: invalid header size")
+            }
+
+            val buffer = ByteBuffer.wrap(vaultData)
+            val magic = ByteArray(MAGIC_BYTES.size)
+            buffer.get(magic)
+            if (!MessageDigest.isEqual(magic, MAGIC_BYTES)) {
+                throw SecurityException("Vault integrity compromised or corrupted: invalid magic header")
+            }
+
+            val version = buffer.get()
+            if (version != FORMAT_VERSION) {
+                throw SecurityException("Vault integrity compromised or corrupted: unsupported version $version")
+            }
+
+            val salt = ByteArray(SALT_LENGTH)
+            buffer.get(salt)
+
+            val iv = ByteArray(IV_LENGTH)
+            buffer.get(iv)
+
+            val expectedHmac = ByteArray(HMAC_LENGTH)
+            buffer.get(expectedHmac)
+
+            val ciphertext = ByteArray(buffer.remaining())
+            buffer.get(ciphertext)
+
+            val (aesKey, hmacKey) = deriveKeys(password, salt)
+
+            // Verify HMAC-SHA256 header digest
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(hmacKey, "HmacSHA256"))
+            mac.update(salt)
+            mac.update(iv)
+            val computedHmac = mac.doFinal(ciphertext)
+
+            if (!MessageDigest.isEqual(expectedHmac, computedHmac)) {
+                throw SecurityException("Vault integrity compromised or corrupted: HMAC authentication failure")
+            }
+
+            // Decrypt AES-256-GCM
+            try {
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                val gcmSpec = GCMParameterSpec(GCM_TAG_BITS, iv)
+                cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(aesKey, "AES"), gcmSpec)
+                cipher.doFinal(ciphertext)
+            } catch (e: Exception) {
+                throw SecurityException("Vault integrity compromised or corrupted", e)
+            }
         }
 
-        val buffer = ByteBuffer.wrap(vaultData)
-        val magic = ByteArray(MAGIC_BYTES.size)
-        buffer.get(magic)
-        if (!MessageDigest.isEqual(magic, MAGIC_BYTES)) {
-            throw SecurityException("Vault integrity compromised or corrupted: invalid magic header")
+    /**
+     * Encrypts a stream into an authenticated .agentdesk vault package with buffered streaming
+     * and explicit max backup size guardrail.
+     */
+    suspend fun encryptVaultStream(
+        inputStream: InputStream,
+        outputStream: OutputStream,
+        password: CharArray,
+        maxSizeBytes: Long = MAX_VAULT_SIZE_BYTES
+    ) = withContext(Dispatchers.IO) {
+        val bufferedInput = inputStream.buffered(BUFFER_SIZE)
+        val baos = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(BUFFER_SIZE)
+        var totalRead = 0L
+        var bytesRead: Int
+        while (bufferedInput.read(buffer).also { bytesRead = it } != -1) {
+            totalRead += bytesRead
+            if (totalRead > maxSizeBytes) {
+                throw IllegalArgumentException("Stream exceeds maximum vault limit of $maxSizeBytes bytes")
+            }
+            baos.write(buffer, 0, bytesRead)
         }
+        val encrypted = encryptVault(baos.toByteArray(), password)
+        outputStream.buffered(BUFFER_SIZE).use { it.write(encrypted) }
+    }
 
-        val version = buffer.get()
-        if (version != FORMAT_VERSION) {
-            throw SecurityException("Vault integrity compromised or corrupted: unsupported version $version")
+    /**
+     * Decrypts a stream from an authenticated .agentdesk vault package with buffered streaming
+     * and explicit max backup size guardrail.
+     */
+    suspend fun decryptVaultStream(
+        inputStream: InputStream,
+        outputStream: OutputStream,
+        password: CharArray,
+        maxSizeBytes: Long = MAX_VAULT_SIZE_BYTES
+    ) = withContext(Dispatchers.IO) {
+        val bufferedInput = inputStream.buffered(BUFFER_SIZE)
+        val baos = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(BUFFER_SIZE)
+        var totalRead = 0L
+        var bytesRead: Int
+        while (bufferedInput.read(buffer).also { bytesRead = it } != -1) {
+            totalRead += bytesRead
+            if (totalRead > maxSizeBytes) {
+                throw SecurityException("Stream exceeds maximum vault limit of $maxSizeBytes bytes")
+            }
+            baos.write(buffer, 0, bytesRead)
         }
-
-        val salt = ByteArray(SALT_LENGTH)
-        buffer.get(salt)
-
-        val iv = ByteArray(IV_LENGTH)
-        buffer.get(iv)
-
-        val expectedHmac = ByteArray(HMAC_LENGTH)
-        buffer.get(expectedHmac)
-
-        val ciphertext = ByteArray(buffer.remaining())
-        buffer.get(ciphertext)
-
-        val (aesKey, hmacKey) = deriveKeys(password, salt)
-
-        // Verify HMAC-SHA256 header digest
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(hmacKey, "HmacSHA256"))
-        mac.update(salt)
-        mac.update(iv)
-        val computedHmac = mac.doFinal(ciphertext)
-
-        if (!MessageDigest.isEqual(expectedHmac, computedHmac)) {
-            throw SecurityException("Vault integrity compromised or corrupted: HMAC authentication failure")
-        }
-
-        // Decrypt AES-256-GCM
-        return try {
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            val gcmSpec = GCMParameterSpec(GCM_TAG_BITS, iv)
-            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(aesKey, "AES"), gcmSpec)
-            cipher.doFinal(ciphertext)
-        } catch (e: Exception) {
-            throw SecurityException("Vault integrity compromised or corrupted", e)
-        }
+        val decrypted = decryptVault(baos.toByteArray(), password)
+        outputStream.buffered(BUFFER_SIZE).use { it.write(decrypted) }
     }
 
     private fun deriveKeys(password: CharArray, salt: ByteArray): Pair<ByteArray, ByteArray> {

@@ -156,4 +156,28 @@ class RedactorTest {
         assertEquals("", redactor.redact(""))
         assertEquals("   ", redactor.redact("   "))
     }
+
+    @Test
+    fun `places sensitive tokens across 4000 char boundary in 12000 char string and asserts 100 percent redaction`() {
+        // Place secret.user@example.com spanning across the 3995..4018 index boundary
+        val prefix = "a".repeat(3995)
+        val email = "secret.user@example.com"
+        val middle = " " + "b".repeat(3980) + " "
+        val phone = "+1-555-867-5309"
+        val remaining = 12_000 - (prefix.length + email.length + middle.length + phone.length)
+        val suffix = " " + "c".repeat(remaining - 1)
+
+        val input = prefix + email + middle + phone + suffix
+        assertEquals(12_000, input.length)
+
+        // Verify that the email spans across index 4000
+        assertTrue("Email must span index 4000", prefix.length < 4000 && (prefix.length + email.length) > 4000)
+
+        val result = redactor.redact(input)
+
+        assertFalse("Result must not contain raw email", result.contains(email))
+        assertFalse("Result must not contain raw phone", result.contains(phone))
+        assertTrue("Result must contain [EMAIL] placeholder", result.contains("[EMAIL]"))
+        assertTrue("Result must contain [PHONE] placeholder", result.contains("[PHONE]"))
+    }
 }

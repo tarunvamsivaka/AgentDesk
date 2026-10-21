@@ -1,6 +1,7 @@
 package com.agentdesk.app
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import com.agentdesk.app.navigation.AppNavHost
 import com.agentdesk.app.navigation.Routes
 import com.agentdesk.app.ui.lock.LockScreen
@@ -27,7 +29,7 @@ import javax.inject.Inject
  *
  * Responsibilities:
  * 1. Apply AgentDeskTheme.
- * 2. If appLockEnabled, show LockScreen before AppNavHost.
+ * 2. If appLockEnabled, show LockScreen before AppNavHost and apply FLAG_SECURE window privacy.
  * 3. Trigger biometric authentication via AppLockManager on request.
  * 4. Determine startDestination based on user consent (first run vs returning).
  */
@@ -51,9 +53,31 @@ class MainActivity : FragmentActivity() {
                 AgentDeskRoot(
                     appLockManager = appLockManager,
                     consentDao = consentDao,
-                    activity = this
+                    activity = this,
+                    onUpdateWindowSecure = { isSecure ->
+                        updateWindowSecureFlag(isSecure)
+                    }
                 )
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch {
+            val lockEnabled = appLockManager.isLockEnabledAsync()
+            updateWindowSecureFlag(lockEnabled)
+        }
+    }
+
+    private fun updateWindowSecureFlag(isSecure: Boolean) {
+        if (isSecure) {
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+            )
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
     }
 }
@@ -62,7 +86,8 @@ class MainActivity : FragmentActivity() {
 private fun AgentDeskRoot(
     appLockManager: AppLockManager,
     consentDao: ConsentDao,
-    activity: FragmentActivity
+    activity: FragmentActivity,
+    onUpdateWindowSecure: (Boolean) -> Unit = {}
 ) {
     var isLockChecked by rememberSaveable { mutableStateOf(false) }
     var isLocked by rememberSaveable { mutableStateOf(false) }
@@ -75,6 +100,9 @@ private fun AgentDeskRoot(
             val lockEnabled = appLockManager.isLockEnabledAsync()
             if (lockEnabled) {
                 isLocked = true
+                onUpdateWindowSecure(true)
+            } else {
+                onUpdateWindowSecure(false)
             }
             isLockChecked = true
         }
