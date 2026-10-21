@@ -1,0 +1,55 @@
+# AgentDesk Production Baseline Profile (AOT Compilation)
+# Critical Hot Execution Paths: RuleEngine, Redactor, FastVectorMath, HybridRetriever, CommandGateway, ChatScreen
+
+# Core Orchestration: RuleEngine
+Lcom/agentdesk/agent/rule/RuleEngine;
+HSPLcom/agentdesk/agent/rule/RuleEngine;->evaluate(Ljava/lang/String;)Lcom/agentdesk/agent/intent/ClassifiedIntent;
+HSPLcom/agentdesk/agent/rule/RuleEngine;->match(Ljava/lang/String;)Lcom/agentdesk/agent/intent/ClassifiedIntent;
+Lcom/agentdesk/agent/rule/Rules;
+Lcom/agentdesk/agent/rule/RuleEntry;
+
+# Core Security: Redactor
+Lcom/agentdesk/core/security/Redactor;
+HSPLcom/agentdesk/core/security/Redactor;->redact(Ljava/lang/String;)Ljava/lang/String;
+HSPLcom/agentdesk/core/security/Redactor;->redactEntities(Ljava/lang/String;)Ljava/lang/String;
+HSPLcom/agentdesk/core/security/Redactor;->stripPii(Ljava/lang/String;)Ljava/lang/String;
+
+# Knowledge & Vector Search: FastVectorMath
+Lcom/agentdesk/knowledge/vector/FastVectorMath;
+HSPLcom/agentdesk/knowledge/vector/FastVectorMath;->quantizeToBytes([F)[B
+HSPLcom/agentdesk/knowledge/vector/FastVectorMath;->dotProductInt8([B[B)F
+HSPLcom/agentdesk/knowledge/vector/FastVectorMath;->cosineSimilarity([F[F)F
+
+# Knowledge Retrieval: HybridRetriever
+Lcom/agentdesk/knowledge/retrieval/HybridRetriever;
+HSPLcom/agentdesk/knowledge/retrieval/HybridRetriever;->retrieve(Ljava/lang/String;I)Ljava/util/List;
+Lcom/agentdesk/knowledge/retrieval/RetrievalResult;
+Lcom/agentdesk/knowledge/chunking/SemanticWindowChunker;
+
+# Command Pipeline: CommandGateway
+Lcom/agentdesk/agent/command/CommandGateway;
+HSPLcom/agentdesk/agent/command/CommandGateway;->submitText(Ljava/lang/String;Lcom/agentdesk/core/common/model/CommandSource;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+HSPLcom/agentdesk/agent/command/CommandGateway;->executeCommand(Lcom/agentdesk/agent/command/Command;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+Lcom/agentdesk/agent/command/Command;
+Lcom/agentdesk/agent/command/CommandOutcome;
+
+# UI Composition: ChatScreen & ChatViewModel
+Lcom/agentdesk/feature/chat/ChatScreenKt;
+HSPLcom/agentdesk/feature/chat/ChatScreenKt;->ChatScreen(Lcom/agentdesk/feature/chat/ChatViewModel;Landroidx/compose/runtime/Composer;I)V
+Lcom/agentdesk/feature/chat/ChatViewModel;
+HSPLcom/agentdesk/feature/chat/ChatViewModel;->submitMessage(Ljava/lang/String;)V
+Lcom/agentdesk/feature/chat/ChatMessage;
+Lcom/agentdesk/feature/chat/ChatUiState;
+
+# System Surfaces & Overlays
+Lcom/agentdesk/app/MainActivity;
+Lcom/agentdesk/app/overlay/AssistantOverlayActivity;
+Lcom/agentdesk/app/service/AgentDeskTileService;
+Lcom/agentdesk/app/widget/AgentDeskAppWidgetProvider;
+Lcom/agentdesk/app/shortcut/ShortcutHelper;
+Lcom/agentdesk/app/voice/OfflineVoiceController;
+
+# Core Hardware Governance & Database
+Lcom/agentdesk/core/device/DeviceProfiler;
+Lcom/agentdesk/core/device/ResourceGovernor;
+Lcom/agentdesk/core/persistence/db/AgentDeskDatabase;
