@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -195,6 +196,17 @@ private fun InputBar(
             modifier = Modifier.weight(1f),
             placeholder = { Text("Ask anything…") },
             enabled = isEnabled,
+            trailingIcon = if (isEnabled && text.isNotEmpty()) {
+                {
+                    IconButton(onClick = { onTextChange("") }) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Clear input",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else null,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             keyboardActions = KeyboardActions(onSend = { onSend() }),
             singleLine = false,
@@ -205,7 +217,18 @@ private fun InputBar(
             onClick = onSend,
             enabled = isEnabled && text.isNotBlank()
         ) {
-            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+            if (!isEnabled) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Send message"
+                )
+            }
         }
     }
 }
