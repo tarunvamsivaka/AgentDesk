@@ -9,8 +9,9 @@ import kotlin.math.sqrt
  *
  * Design Invariants:
  * 1. Zero C++ NDK binaries: 100% compliant with Android 15+ 16 KB page-size memory architectures.
- * 2. Unrolled 4-wide loops: allows the Android ART runtime to auto-vectorize loops into ARM64 NEON SIMD
- *    instructions (fmla.4s / fmla.2d), achieving ~6.5ms scan times over 2,000 vectors.
+ * 2. Unrolled 8-wide loops: allows the Android ART runtime to auto-vectorize loops into dual-issue ARM64 NEON
+ *    SIMD instructions (e.g. paired fmla.4s or 8-way integer arithmetic), cutting loop branch overhead by 50%
+ *    and maximizing instruction-level parallelism (ILP) across multiple execution units on modern mobile CPUs.
  * 3. IEEE-754 Little-Endian binary serialization: zero copy overhead when persisting to Room BLOBs.
  */
 object FastVectorMath {
@@ -41,8 +42,8 @@ object FastVectorMath {
     }
 
     /**
-     * Computes the dot product of two float vectors using a 4-wide unrolled loop
-     * structured for ART NEON SIMD auto-vectorization.
+     * Computes the dot product of two float vectors using an 8-wide unrolled loop
+     * structured for ART NEON SIMD auto-vectorization (dual 128-bit NEON FMA instructions).
      */
     fun dotProduct(a: FloatArray, b: FloatArray): Float {
         val size = a.size
@@ -52,18 +53,27 @@ object FastVectorMath {
         var acc1 = 0.0f
         var acc2 = 0.0f
         var acc3 = 0.0f
+        var acc4 = 0.0f
+        var acc5 = 0.0f
+        var acc6 = 0.0f
+        var acc7 = 0.0f
 
-        val unrolledLimit = size - (size % 4)
+        // 8-wide unrolling cuts loop overhead in half and enables dual-issue SIMD pipelines
+        val unrolledLimit = size - (size % 8)
         var i = 0
         while (i < unrolledLimit) {
             acc0 += a[i] * b[i]
             acc1 += a[i + 1] * b[i + 1]
             acc2 += a[i + 2] * b[i + 2]
             acc3 += a[i + 3] * b[i + 3]
-            i += 4
+            acc4 += a[i + 4] * b[i + 4]
+            acc5 += a[i + 5] * b[i + 5]
+            acc6 += a[i + 6] * b[i + 6]
+            acc7 += a[i + 7] * b[i + 7]
+            i += 8
         }
 
-        var total = acc0 + acc1 + acc2 + acc3
+        var total = (acc0 + acc1) + (acc2 + acc3) + (acc4 + acc5) + (acc6 + acc7)
         while (i < size) {
             total += a[i] * b[i]
             i++
@@ -144,9 +154,13 @@ object FastVectorMath {
     }
 
     /**
-     * Computes cosine similarity between two int8 quantized vectors using 4-wide unrolled
+     * Computes cosine similarity between two int8 quantized vectors using 8-wide unrolled
      * integer arithmetic structured for ART NEON SIMD auto-vectorization:
      *   A . B ≈ (sum(q1[i] * q2[i])) * scale1 * scale2 / (norm1 * norm2)
+     *
+     * 8-wide unrolling cuts loop branching overhead by 50% and provides multiple independent
+     * accumulator registers (acc0..acc7) to avoid pipeline stalls and take full advantage of
+     * superscalar execution on ARM64 Cortex-A/X cores.
      *
      * Guarantees < 1% drift compared to 32-bit floating point dot product.
      */
@@ -163,18 +177,27 @@ object FastVectorMath {
         var acc1 = 0
         var acc2 = 0
         var acc3 = 0
+        var acc4 = 0
+        var acc5 = 0
+        var acc6 = 0
+        var acc7 = 0
 
-        val unrolledLimit = size - (size % 4)
+        // 8-wide unrolling cuts branch jumps in half and utilizes 8 independent integer accumulators
+        val unrolledLimit = size - (size % 8)
         var i = 0
         while (i < unrolledLimit) {
             acc0 += q1[i].toInt() * q2[i].toInt()
             acc1 += q1[i + 1].toInt() * q2[i + 1].toInt()
             acc2 += q1[i + 2].toInt() * q2[i + 2].toInt()
             acc3 += q1[i + 3].toInt() * q2[i + 3].toInt()
-            i += 4
+            acc4 += q1[i + 4].toInt() * q2[i + 4].toInt()
+            acc5 += q1[i + 5].toInt() * q2[i + 5].toInt()
+            acc6 += q1[i + 6].toInt() * q2[i + 6].toInt()
+            acc7 += q1[i + 7].toInt() * q2[i + 7].toInt()
+            i += 8
         }
 
-        var totalInt = acc0 + acc1 + acc2 + acc3
+        var totalInt = (acc0 + acc1) + (acc2 + acc3) + (acc4 + acc5) + (acc6 + acc7)
         while (i < size) {
             totalInt += q1[i].toInt() * q2[i].toInt()
             i++

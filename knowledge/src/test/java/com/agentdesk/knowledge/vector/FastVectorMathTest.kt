@@ -33,6 +33,47 @@ class FastVectorMathTest {
     }
 
     @Test
+    fun dotProduct_arbitraryLengthsAndRemainderElements() {
+        for (dim in listOf(0, 1, 3, 7, 8, 9, 15, 16, 127, 128, 384, 512)) {
+            val a = FloatArray(dim) { (it + 1) * 0.5f }
+            val b = FloatArray(dim) { (it % 5) * 0.25f }
+
+            var expected = 0f
+            for (i in 0 until dim) {
+                expected += a[i] * b[i]
+            }
+
+            val actual = FastVectorMath.dotProduct(a, b)
+            assertEquals("dotProduct failed for dim $dim", expected, actual, 1e-4f)
+        }
+    }
+
+    @Test
+    fun cosineSimilarityInt8_arbitraryLengthsAndRemainderElements() {
+        val random = java.util.Random(1234)
+        for (dim in listOf(1, 3, 7, 8, 9, 15, 16, 128, 384)) {
+            val a = FloatArray(dim) { random.nextGaussian().toFloat() }
+            val b = FloatArray(dim) { random.nextGaussian().toFloat() }
+
+            val qA = FastVectorMath.quantizeToInt8(a)
+            val qB = FastVectorMath.quantizeToInt8(b)
+
+            // Direct calculation to verify loop unrolling matches standard sum
+            var rawIntSum = 0
+            for (i in 0 until dim) {
+                rawIntSum += qA.bytes[i].toInt() * qB.bytes[i].toInt()
+            }
+            val expectedSim = (rawIntSum.toFloat() * (qA.scale * qB.scale) / (qA.norm * qB.norm)).coerceIn(-1.0f, 1.0f)
+
+            val actualSim = FastVectorMath.cosineSimilarityInt8(
+                qA.bytes, qA.scale, qA.norm,
+                qB.bytes, qB.scale, qB.norm
+            )
+            assertEquals("cosineSimilarityInt8 unrolled calculation mismatch for dim $dim", expectedSim, actualSim, 1e-5f)
+        }
+    }
+
+    @Test
     fun l2NormAndNormalize_producesUnitVector() {
         val v = floatArrayOf(3.0f, 4.0f)
         assertEquals(5.0f, FastVectorMath.l2Norm(v), 1e-6f)
