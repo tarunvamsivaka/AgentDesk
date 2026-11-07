@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -195,6 +196,16 @@ private fun InputBar(
             modifier = Modifier.weight(1f),
             placeholder = { Text("Ask anything…") },
             enabled = isEnabled,
+            trailingIcon = if (text.isNotEmpty() && isEnabled) {
+                {
+                    IconButton(onClick = { onTextChange("") }) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Clear input text"
+                        )
+                    }
+                }
+            } else null,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             keyboardActions = KeyboardActions(onSend = { onSend() }),
             singleLine = false,
