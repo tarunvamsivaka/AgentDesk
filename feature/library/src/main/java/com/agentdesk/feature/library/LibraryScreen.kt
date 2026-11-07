@@ -50,12 +50,14 @@ fun LibraryScreen(
         if (uri != null) viewModel.onImportFolder(uri)
     }
 
+    // Providing explicit contentType allows Compose's LazyColumn to reuse composition
+    // nodes among note rows without tearing down and re-creating sub-hierarchies.
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
+        item(key = "library_header", contentType = "header") {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -95,7 +97,7 @@ fun LibraryScreen(
             }
         }
 
-        item {
+        item(key = "notes_section_title", contentType = "section_title") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.StickyNote2,
@@ -109,7 +111,7 @@ fun LibraryScreen(
         }
 
         if (notes.isEmpty()) {
-            item {
+            item(key = "empty_notes_state", contentType = "empty_state") {
                 Text(
                     text = "No notes yet. Try: note buy milk",
                     style = MaterialTheme.typography.bodyMedium,
@@ -119,7 +121,11 @@ fun LibraryScreen(
                 )
             }
         } else {
-            items(notes, key = { it.id }) { note ->
+            items(
+                items = notes,
+                key = { it.id },
+                contentType = { "note_item" }
+            ) { note ->
                 NoteRow(note)
             }
         }
