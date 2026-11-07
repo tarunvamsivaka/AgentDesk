@@ -29,13 +29,16 @@ fun AuditScreen(
     val events by viewModel.events.collectAsState(initial = emptyList())
     val rejected by viewModel.rejected.collectAsState(initial = emptyList())
 
+    // Providing explicit contentType allows Compose's LazyColumn to recycle composition
+    // slots across items of the same structure, avoiding unnecessary teardown and reallocation
+    // during fast fling scrolling.
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (events.isEmpty()) {
-            item {
+            item(key = "empty_audit_state", contentType = "empty_state") {
                 Text(
                     text = "No audit events yet.",
                     style = MaterialTheme.typography.bodySmall,
@@ -43,15 +46,23 @@ fun AuditScreen(
                 )
             }
         }
-        items(events, key = { it.id }) { event ->
+        items(
+            items = events,
+            key = { it.id },
+            contentType = { "audit_event" }
+        ) { event ->
             AuditRow(event)
         }
         if (rejected.isNotEmpty()) {
-            item {
+            item(key = "blocked_header", contentType = "header") {
                 Spacer(Modifier.height(8.dp))
                 Text("Blocked by policy engine", style = MaterialTheme.typography.titleSmall)
             }
-            items(rejected, key = { it.id }) { decision ->
+            items(
+                items = rejected,
+                key = { it.id },
+                contentType = { "rejected_decision" }
+            ) { decision ->
                 RejectedRow(decision)
             }
         }
