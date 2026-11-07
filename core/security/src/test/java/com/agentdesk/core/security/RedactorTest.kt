@@ -90,6 +90,29 @@ class RedactorTest {
     }
 
     @Test
+    fun `redacts standard US social security numbers`() {
+        val ssn = "My SSN is 123-45-6789 confidential"
+        val result = redactor.redact(ssn)
+        assertFalse("Should not contain raw SSN", result.contains("123-45-6789"))
+        assertTrue("Should contain [SSN] placeholder", result.contains("[SSN]"))
+        assertEquals("My SSN is [SSN] confidential", result)
+    }
+
+    @Test
+    fun `redacts bearer authorization headers without colons`() {
+        val authHeader = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.t-IDcSemACt8x4iTMCda8Yhe3iZaWbvV5XKSTbuAn0M"
+        val standaloneBearer = "Use Bearer secret_access_token_12345 to authenticate"
+
+        val redactedHeader = redactor.redact(authHeader)
+        val redactedBearer = redactor.redact(standaloneBearer)
+
+        assertFalse(redactedHeader.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"))
+        assertFalse(redactedBearer.contains("secret_access_token_12345"))
+        assertTrue(redactedHeader.contains("[TOKEN]"))
+        assertTrue(redactedBearer.contains("[TOKEN]"))
+    }
+
+    @Test
     fun `redacts tokens, API keys, and passwords`() {
         val token = "api_key: sk_live_9876543210fedcba"
         val secret = "secret=shhh_dont_tell_anyone"

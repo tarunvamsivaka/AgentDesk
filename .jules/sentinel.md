@@ -1,0 +1,4 @@
+## 2026-11-07 - PII Sanitization Expansion for Social Security Numbers and Bearer Tokens
+**Vulnerability:** User inputs, notes, and audit logs were vulnerable to storing raw US Social Security Numbers (SSNs) and standard `Authorization: Bearer <token>` strings because `Redactor.kt` only scrubbed phone numbers, emails, credit cards, and `key[:=]val` tokens.
+**Learning:** In privacy-first, on-device architectures where data is persisted to local databases (Room/SQLite), redaction patterns must account for high-risk PII formats like US SSNs and common bearer token headers without requiring colon/equals delimiters, while using fast-path sentinel character checks to avoid regex evaluation overhead.
+**Prevention:** Include standard PII patterns (SSN, Bearer tokens) in `Redactor` and maintain sentinel pre-filtering (`hasBearer`, `hasDigit`) to safeguard bounded linear performance ($O(N)$) against ReDoS risks.
