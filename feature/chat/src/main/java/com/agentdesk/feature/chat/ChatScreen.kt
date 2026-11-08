@@ -14,6 +14,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -118,6 +120,7 @@ private fun ChatBubble(message: ChatMessage) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
+        val speakerLabel = if (isUser) "You said" else "Agent said"
         Surface(
             shape = RoundedCornerShape(
                 topStart = 16.dp, topEnd = 16.dp,
@@ -128,7 +131,11 @@ private fun ChatBubble(message: ChatMessage) {
                 MaterialTheme.colorScheme.primary
             else
                 MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.widthIn(max = 300.dp)
+            modifier = Modifier
+                .widthIn(max = 300.dp)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "$speakerLabel: ${message.text}"
+                }
         ) {
             Text(
                 text = message.text,
@@ -154,7 +161,12 @@ private fun TypingIndicator() {
             color = MaterialTheme.colorScheme.surfaceVariant
         ) {
             CircularProgressIndicator(
-                modifier = Modifier.padding(12.dp).size(16.dp),
+                modifier = Modifier
+                    .padding(12.dp)
+                    .size(16.dp)
+                    .semantics {
+                        contentDescription = "Agent is thinking"
+                    },
                 strokeWidth = 2.dp
             )
         }
