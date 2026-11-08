@@ -91,6 +91,9 @@ class Redactor @Inject constructor() {
         private val EMAIL_PATTERN = Regex("""[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}""")
         private val URL_WITH_CREDS = Regex("""https?://[^@\s]+:[^@\s]+@[^\s]+""")
         private val CARD_PATTERN = Regex("""\b(?:\d[ -]?){13,19}\b""")
-        private val TOKEN_PATTERN = Regex("""(?i)(token|secret|key|password|bearer|api_key)\s*[:=]\s*\S+""")
+        // Redacts credentials in key-value format, JSON objects, and CLI exports (handles quotes and multi-word values)
+        private val TOKEN_PATTERN = Regex(
+            """(?i)["'`]?(?:token|secret|key|password|bearer|api_key|access_token|refresh_token|private_key)["'`]?\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S+)"""
+        )
     }
 }

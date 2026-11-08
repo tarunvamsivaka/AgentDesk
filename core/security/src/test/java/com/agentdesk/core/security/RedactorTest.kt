@@ -114,6 +114,19 @@ class RedactorTest {
     }
 
     @Test
+    fun `redacts JSON and quoted credential structures`() {
+        val jsonPassword = """{"password": "my super secret password!"}"""
+        val jsonApiKey = """{"api_key": "sk-ant-api03-12345"}"""
+        val accessToken = "access_token: eyJhbGciOi..."
+        val privateKey = "private_key = 'rsa_private_key_pem'"
+
+        assertEquals("""{[TOKEN]}""", redactor.redact(jsonPassword))
+        assertEquals("""{[TOKEN]}""", redactor.redact(jsonApiKey))
+        assertEquals("[TOKEN]", redactor.redact(accessToken))
+        assertEquals("[TOKEN]", redactor.redact(privateKey))
+    }
+
+    @Test
     fun `safe pass-through of benign text`() {
         val notes = listOf(
             "Buy 2 apples and 3 bananas at the grocery store",
