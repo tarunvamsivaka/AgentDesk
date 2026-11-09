@@ -10,10 +10,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -146,7 +149,11 @@ private fun ChatBubble(message: ChatMessage) {
 @Composable
 private fun TypingIndicator() {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Agent is typing"
+            },
         horizontalArrangement = Arrangement.Start
     ) {
         Surface(
@@ -197,6 +204,13 @@ private fun InputBar(
             enabled = isEnabled,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             keyboardActions = KeyboardActions(onSend = { onSend() }),
+            trailingIcon = if (text.isNotEmpty() && isEnabled) {
+                {
+                    IconButton(onClick = { onTextChange("") }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Clear input")
+                    }
+                }
+            } else null,
             singleLine = false,
             maxLines = 4
         )
