@@ -3,6 +3,7 @@ package com.agentdesk.knowledge.handler
 import android.content.Context
 import android.net.Uri
 import java.io.File
+import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
 /**
@@ -47,12 +48,23 @@ object IngestSecurityValidator {
             return false
         }
 
-        // 2. Reject path traversal
-        if (path.contains("..")) {
+        // 2. Normalize and iteratively decode to neutralize encoded traversal (%2e%2e, %2f, %252e%252e)
+        var decodedPath = path.replace('\\', '/')
+        repeat(2) {
+            try {
+                decodedPath = URLDecoder.decode(decodedPath, StandardCharsets.UTF_8.name())
+                    .replace('\\', '/')
+            } catch (_: Exception) {
+                // Keep current string if URL decoding throws IllegalArgumentException
+            }
+        }
+
+        // 3. Reject path traversal (both standard and decoded variants)
+        if (path.contains("..") || decodedPath.contains("..")) {
             return false
         }
 
-        // 3. Reject access to app's private data directories
+        // 4. Reject access to app's private data directories
         val privateDataDir = context?.let { ctx ->
             try {
                 File(ctx.applicationInfo?.dataDir ?: "").canonicalPath
@@ -61,10 +73,10 @@ object IngestSecurityValidator {
             }
         }.orEmpty()
 
-        val lowerPath = path.lowercase()
+        val lowerPath = decodedPath.lowercase()
         if (privateDataDir.isNotEmpty()) {
             val lowerDataDir = privateDataDir.lowercase()
-            if (lowerPath.startsWith(lowerDataDir)) {
+            if (lowerPath.startsWith(lowerDataDir) || path.lowercase().startsWith(lowerDataDir)) {
                 return false
             }
         }
