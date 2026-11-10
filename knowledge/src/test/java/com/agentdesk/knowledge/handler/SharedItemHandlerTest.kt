@@ -136,10 +136,38 @@ class SharedItemHandlerTest {
             )
         )
 
-        // Databases / private path must be rejected
+        // URL-encoded traversal (%2e%2e and %2E%2E) must be rejected
+        org.junit.Assert.assertFalse(
+            IngestSecurityValidator.isUriStringSafe(
+                uriString = "content://com.agentdesk.provider/%2e%2e/%2e%2e/databases/agentdesk.db"
+            )
+        )
+        org.junit.Assert.assertFalse(
+            IngestSecurityValidator.isUriStringSafe(
+                uriString = "content://com.agentdesk.provider/%2E%2E/%2E%2E/private/secrets.txt"
+            )
+        )
+        // Double-encoded traversal (%252e%252e) must be rejected
+        org.junit.Assert.assertFalse(
+            IngestSecurityValidator.isUriStringSafe(
+                uriString = "content://com.agentdesk.provider/%252e%252e/%252e%252e/databases/agentdesk.db"
+            )
+        )
+
+        // Databases / private path must be rejected (direct and URL-encoded)
         org.junit.Assert.assertFalse(
             IngestSecurityValidator.isUriStringSafe(
                 uriString = "content://com.agentdesk.provider/data/data/com.agentdesk/databases/agentdesk.db"
+            )
+        )
+        org.junit.Assert.assertFalse(
+            IngestSecurityValidator.isUriStringSafe(
+                uriString = "content://com.agentdesk.provider/%64%61%74%61/data/com.agentdesk/%64%61%74%61%62%61%73%65%73/agentdesk.db"
+            )
+        )
+        org.junit.Assert.assertFalse(
+            IngestSecurityValidator.isUriStringSafe(
+                uriString = "content://com.agentdesk.provider/%2fshared_prefs%2fsettings.xml"
             )
         )
 
