@@ -356,4 +356,14 @@ class ConfirmationFlowTest {
         assertEquals(conversationDao.messages.first().id, restoredMessages.first().id)
         assertEquals(conversationDao.messages.last().id, restoredMessages.last().id)
     }
+
+    @Test
+    fun `clearing input text empties the input state`() = runTest {
+        viewModel = buildViewModel()
+        viewModel.onInputChanged("draft a message")
+        assertEquals("draft a message", viewModel.uiState.value.inputText)
+
+        viewModel.onInputChanged("")
+        assertEquals("", viewModel.uiState.value.inputText)
+    }
 }
