@@ -356,4 +356,15 @@ class ConfirmationFlowTest {
         assertEquals(conversationDao.messages.first().id, restoredMessages.first().id)
         assertEquals(conversationDao.messages.last().id, restoredMessages.last().id)
     }
+
+    @Test
+    fun testChatViewModelInputTextClear() = runTest {
+        viewModel = buildViewModel()
+
+        viewModel.onInputChanged("Drafting a message")
+        assertEquals("Drafting a message", viewModel.uiState.value.inputText)
+
+        viewModel.onInputChanged("")
+        assertEquals("", viewModel.uiState.value.inputText)
+    }
 }

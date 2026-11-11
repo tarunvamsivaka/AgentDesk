@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -198,7 +199,20 @@ private fun InputBar(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             keyboardActions = KeyboardActions(onSend = { onSend() }),
             singleLine = false,
-            maxLines = 4
+            maxLines = 4,
+            trailingIcon = if (text.isNotEmpty()) {
+                {
+                    IconButton(
+                        onClick = { onTextChange("") },
+                        enabled = isEnabled
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Clear input"
+                        )
+                    }
+                }
+            } else null
         )
         Spacer(Modifier.width(8.dp))
         IconButton(
